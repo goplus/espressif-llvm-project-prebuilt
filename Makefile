@@ -189,7 +189,7 @@ libs-clang-$(1): llvm-source $(if $(findstring linux-gnu,$(1)),check-$(1),) $(if
 endef
 
 # Cross-compilation dependency checks
-.PHONY: check-aarch64-linux-gnu check-arm-linux-gnueabihf check-x86_64-w64-mingw32
+.PHONY: check-aarch64-linux-gnu check-arm-linux-gnueabihf check-x86_64-w64-mingw32 check-x86_64-linux-gnu
 
 check-aarch64-linux-gnu:
 	@command -v aarch64-linux-gnu-gcc >/dev/null 2>&1 || { echo "Error: aarch64-linux-gnu-gcc not found. Install with: sudo apt-get install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu"; exit 1; }
@@ -199,6 +199,9 @@ check-arm-linux-gnueabihf:
 
 check-x86_64-w64-mingw32:
 	@command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 || { echo "Error: x86_64-w64-mingw32-gcc not found. Install with: sudo apt-get install gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64"; exit 1; }
+
+check-x86_64-linux-gnu:
+	@command -v gcc >/dev/null 2>&1 || { echo "Error: gcc not found. Install with: sudo apt-get install build-essential"; exit 1; }
 
 # Generate rules for each target
 $(foreach target,$(BUILD_TARGETS),$(eval $(call make_target_rules,$(target))))
