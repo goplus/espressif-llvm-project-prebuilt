@@ -165,7 +165,8 @@ jobs:
         make llvm-source
 
         # Build both clang and libs packages
-        make -j8 clang-${{ matrix.target }} libs-clang-${{ matrix.target }}
+        make -j8 clang-${{ matrix.target }}
+        make -j8 libs-clang-${{ matrix.target }}
 
     - name: List generated packages
       run: |

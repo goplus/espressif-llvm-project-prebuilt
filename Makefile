@@ -180,10 +180,8 @@ clang-$(1): llvm-source $(if $(findstring linux-gnu,$(1)),check-$(1),) $(if $(fi
 	$(call create_clang_package,$(1))
 	@echo "Created: build/clang-$(VERSION_STRING)-$(1).tar.xz"
 
-libs-clang-$(1): llvm-source $(if $(findstring linux-gnu,$(1)),check-$(1),) $(if $(findstring gnueabihf,$(1)),check-$(1),) $(if $(findstring mingw32,$(1)),check-$(1),) ## Build libs package for $(1)
+libs-clang-$(1): clang-$(1) ## Build libs package for $(1) (reuses clang build)
 	@echo "Building libs for $(1)..."
-	$(call configure_llvm,$(1))
-	$(call build_llvm,$(1))
 	$(call create_libs_package,$(1))
 	@echo "Created: build/libs-clang-$(VERSION_STRING)-$(1).tar.xz"
 endef
