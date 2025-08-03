@@ -159,6 +159,7 @@ jobs:
         max-size: 2G
 
     - name: Build packages
+      shell: bash
       env:
         TAG: ${{ needs.prepare.outputs.tag }}
         CCACHE: "ON"
@@ -174,6 +175,7 @@ jobs:
         make -j8 libs-clang-${{ matrix.target }}
 
     - name: List generated packages
+      shell: bash
       run: |
         echo "Generated packages:"
         ls -la build/*.tar.xz 2>/dev/null || echo "No packages found in build/"
