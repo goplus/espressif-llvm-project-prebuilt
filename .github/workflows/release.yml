@@ -1,0 +1,183 @@
+name: Build Espressif LLVM Release
+
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (optional, uses current commit if empty)'
+        required: false
+        type: string
+      upload:
+        description: 'Upload release assets'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
+      upload: ${{ steps.vars.outputs.upload }}
+      version_string: ${{ steps.vars.outputs.version_string }}
+
+    steps:
+    - name: Determine tag and version
+      id: vars
+      run: |
+        if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
+          tag="${{ github.ref_name }}"
+          upload="true"
+        elif [ -n "${{ inputs.tag }}" ]; then
+          tag="${{ inputs.tag }}"
+          upload="${{ inputs.upload }}"
+        else
+          tag="dev-$(date +%Y%m%d-%H%M%S)"
+          upload="${{ inputs.upload }}"
+        fi
+
+        version_string="esp-$tag"
+
+        echo "tag=$tag" >> $GITHUB_OUTPUT
+        echo "upload=$upload" >> $GITHUB_OUTPUT
+        echo "version_string=$version_string" >> $GITHUB_OUTPUT
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux builds - use larger runners for performance
+          - target: x86_64-linux-gnu
+            os: ubuntu-22.04
+            runner: ubuntu-22.04
+            ccache_variant: sccache
+          - target: aarch64-linux-gnu
+            os: ubuntu-22.04
+            runner: ubuntu-22.04
+            ccache_variant: ccache
+            cross_compile: true
+          - target: arm-linux-gnueabihf
+            os: ubuntu-22.04
+            runner: ubuntu-22.04
+            ccache_variant: ccache
+            cross_compile: true
+          - target: x86_64-w64-mingw32
+            os: ubuntu-22.04
+            runner: ubuntu-22.04
+            ccache_variant: ccache
+            cross_compile: true
+          # macOS builds - use large runners for better performance on non-PR builds
+          - target: x86_64-apple-darwin
+            os: macos-13
+            runner: macos-13
+            ccache_variant: sccache
+          - target: aarch64-apple-darwin
+            os: macos-14
+            runner: macos-14
+            ccache_variant: sccache
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install build dependencies (Linux)
+      if: matrix.os == 'ubuntu-22.04'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake ninja-build ccache
+        # Install cross-compilation toolchains
+        if [[ "${{ matrix.cross_compile }}" == "true" ]]; then
+          case "${{ matrix.target }}" in
+            "aarch64-linux-gnu")
+              sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+              ;;
+            "arm-linux-gnueabihf")
+              sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+              ;;
+            "x86_64-w64-mingw32")
+              sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+              ;;
+          esac
+        fi
+
+    - name: Install build dependencies (macOS)
+      if: matrix.os == 'macos-13' || matrix.os == 'macos-14'
+      run: |
+        brew install cmake ninja ccache
+
+    - name: Setup ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        key: ${{ matrix.target }}-${{ needs.prepare.outputs.tag }}
+        restore-keys: |
+          ${{ matrix.target }}-${{ needs.prepare.outputs.version_string }}
+          ${{ matrix.target }}-
+        variant: ${{ matrix.ccache_variant }}
+        max-size: 2G
+
+    - name: Build packages
+      env:
+        TAG: ${{ needs.prepare.outputs.tag }}
+        CCACHE: "ON"
+      run: |
+        # Show build configuration
+        make debug
+
+        # Get LLVM source
+        make llvm-source
+
+        # Build both clang and libs packages
+        make clang-${{ matrix.target }} libs-clang-${{ matrix.target }}
+
+    - name: List generated packages
+      run: |
+        echo "Generated packages:"
+        ls -la build/*.tar.xz 2>/dev/null || echo "No packages found in build/"
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.target }}-packages
+        path: |
+          build/*.tar.xz
+        retention-days: 30
+
+  release:
+    name: Create Release
+    needs: [prepare, build]
+    if: needs.prepare.outputs.upload == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Prepare release files
+      run: |
+        find artifacts -name "*.tar.xz" -exec mv {} . \;
+        echo "Release files:"
+        ls -la *.tar.xz
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ needs.prepare.outputs.tag }}
+        name: "Espressif LLVM ${{ needs.prepare.outputs.tag }}"
+        draft: false
+        prerelease: false
+        files: "*.tar.xz"
+        token: ${{ secrets.GITHUB_TOKEN }}
