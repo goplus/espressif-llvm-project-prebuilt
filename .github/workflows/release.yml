@@ -1,9 +1,18 @@
-name: Build Espressif LLVM Release
+name: Build Espressif LLVM
 
 on:
   push:
     tags:
       - '*'
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - 'Makefile'
+      - '.github/workflows/release.yml'
+      - '**.md'
   workflow_dispatch:
     inputs:
       tag:
@@ -19,6 +28,11 @@ on:
 permissions:
   contents: write
 
+# Concurrency control to prevent multiple builds for the same PR/branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   prepare:
     name: Prepare Release
@@ -33,12 +47,19 @@ jobs:
       id: vars
       run: |
         if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
+          # Tag push - create release
           tag="${{ github.ref_name }}"
           upload="true"
+        elif [ "${{ github.event_name }}" = "pull_request" ]; then
+          # PR build - no release, use PR number
+          tag="pr-${{ github.event.pull_request.number }}-$(date +%Y%m%d-%H%M%S)"
+          upload="false"
         elif [ -n "${{ inputs.tag }}" ]; then
+          # Manual trigger with tag
           tag="${{ inputs.tag }}"
           upload="${{ inputs.upload }}"
         else
+          # Manual trigger without tag
           tag="dev-$(date +%Y%m%d-%H%M%S)"
           upload="${{ inputs.upload }}"
         fi
@@ -49,6 +70,12 @@ jobs:
         echo "upload=$upload" >> $GITHUB_OUTPUT
         echo "version_string=$version_string" >> $GITHUB_OUTPUT
 
+        echo "Build configuration:"
+        echo "  Event: ${{ github.event_name }}"
+        echo "  Tag: $tag"
+        echo "  Version String: $version_string"
+        echo "  Upload: $upload"
+
   build:
     name: Build ${{ matrix.target }}
     needs: prepare
@@ -56,7 +83,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux builds - use larger runners for performance
+          # Linux builds
           - target: x86_64-linux-gnu
             os: ubuntu-22.04
             runner: ubuntu-22.04
@@ -76,7 +103,7 @@ jobs:
             runner: ubuntu-22.04
             ccache_variant: ccache
             cross_compile: true
-          # macOS builds - use large runners for better performance on non-PR builds
+          # macOS builds
           - target: x86_64-apple-darwin
             os: macos-13
             runner: macos-13
@@ -152,12 +179,13 @@ jobs:
         name: ${{ matrix.target }}-packages
         path: |
           build/*.tar.xz
-        retention-days: 30
+        # Shorter retention for PR builds, longer for releases
+        retention-days: ${{ github.event_name == 'pull_request' && 7 || 30 }}
 
   release:
     name: Create Release
     needs: [prepare, build]
-    if: needs.prepare.outputs.upload == 'true'
+    if: needs.prepare.outputs.upload == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
 
     steps:
