@@ -59,9 +59,8 @@ jobs:
           tag="${{ inputs.tag }}"
           upload="${{ inputs.upload }}"
         else
-          # Manual trigger without tag
-          tag="dev-$(date +%Y%m%d-%H%M%S)"
-          upload="${{ inputs.upload }}"
+          echo "No tag specified and not a tag push event"
+          exit 1
         fi
 
         version_string="esp-$tag"
@@ -166,7 +165,7 @@ jobs:
         make llvm-source
 
         # Build both clang and libs packages
-        make clang-${{ matrix.target }} libs-clang-${{ matrix.target }}
+        make -j8 clang-${{ matrix.target }} libs-clang-${{ matrix.target }}
 
     - name: List generated packages
       run: |
