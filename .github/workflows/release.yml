@@ -52,7 +52,7 @@ jobs:
           upload="true"
         elif [ "${{ github.event_name }}" = "pull_request" ]; then
           # PR build - no release, use PR number
-          tag="pr-${{ github.event.pull_request.number }}-$(date +%Y%m%d-%H%M%S)"
+          tag="19.1.2_20250225"
           upload="false"
         elif [ -n "${{ inputs.tag }}" ]; then
           # Manual trigger with tag
