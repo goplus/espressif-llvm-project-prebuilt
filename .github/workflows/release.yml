@@ -1,0 +1,291 @@
+name: Build Espressif LLVM
+
+on:
+  push:
+    tags:
+      - '*'
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - 'Makefile'
+      - '.github/workflows/release.yml'
+      - '**.md'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (optional, uses current commit if empty)'
+        required: false
+        type: string
+      upload:
+        description: 'Upload release assets'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+# Concurrency control to prevent multiple builds for the same PR/branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
+      upload: ${{ steps.vars.outputs.upload }}
+      version_string: ${{ steps.vars.outputs.version_string }}
+
+    steps:
+    - name: Determine tag and version
+      id: vars
+      run: |
+        if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
+          # Tag push - create release
+          tag="${{ github.ref_name }}"
+          upload="true"
+        elif [ "${{ github.event_name }}" = "pull_request" ]; then
+          # PR build - no release, use PR number
+          tag="19.1.2_20250225"
+          upload="false"
+        elif [ -n "${{ inputs.tag }}" ]; then
+          # Manual trigger with tag
+          tag="${{ inputs.tag }}"
+          upload="${{ inputs.upload }}"
+        else
+          echo "No tag specified and not a tag push event"
+          exit 1
+        fi
+
+        version_string="esp-$tag"
+
+        echo "tag=$tag" >> $GITHUB_OUTPUT
+        echo "upload=$upload" >> $GITHUB_OUTPUT
+        echo "version_string=$version_string" >> $GITHUB_OUTPUT
+
+        echo "Build configuration:"
+        echo "  Event: ${{ github.event_name }}"
+        echo "  Tag: $tag"
+        echo "  Version String: $version_string"
+        echo "  Upload: $upload"
+
+  build:
+    name: Build ${{ matrix.package_type }} for ${{ matrix.target }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux builds - clang packages
+          - target: x86_64-linux-gnu
+            package_type: clang
+            os: ubuntu-22.04
+            runner: ubuntu-22.04
+            ccache_variant: sccache
+          - target: x86_64-linux-gnu
+            package_type: libs-clang
+            os: ubuntu-22.04
+            runner: ubuntu-22.04
+            ccache_variant: sccache
+          - target: aarch64-linux-gnu
+            package_type: clang
+            os: ubuntu-22.04
+            runner: ubuntu-22.04
+            ccache_variant: ccache
+            cross_compile: true
+          - target: aarch64-linux-gnu
+            package_type: libs-clang
+            os: ubuntu-22.04
+            runner: ubuntu-22.04
+            ccache_variant: ccache
+            cross_compile: true
+          - target: arm-linux-gnueabihf
+            package_type: clang
+            os: ubuntu-22.04
+            runner: ubuntu-22.04
+            ccache_variant: ccache
+            cross_compile: true
+          - target: arm-linux-gnueabihf
+            package_type: libs-clang
+            os: ubuntu-22.04
+            runner: ubuntu-22.04
+            ccache_variant: ccache
+            cross_compile: true
+          # Windows builds  
+          - target: x86_64-w64-mingw32
+            package_type: clang
+            os: windows-2022
+            runner: windows-2022
+            ccache_variant: sccache
+          - target: x86_64-w64-mingw32
+            package_type: libs-clang
+            os: windows-2022
+            runner: windows-2022
+            ccache_variant: sccache
+          # macOS builds
+          - target: x86_64-apple-darwin
+            package_type: clang
+            os: macos-13
+            runner: macos-13
+            ccache_variant: sccache
+          - target: x86_64-apple-darwin
+            package_type: libs-clang
+            os: macos-13
+            runner: macos-13
+            ccache_variant: sccache
+          - target: aarch64-apple-darwin
+            package_type: clang
+            os: macos-14
+            runner: macos-14
+            ccache_variant: sccache
+          - target: aarch64-apple-darwin
+            package_type: libs-clang
+            os: macos-14
+            runner: macos-14
+            ccache_variant: sccache
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install build dependencies (Linux)
+      if: matrix.os == 'ubuntu-22.04'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake ninja-build ccache
+        # Install cross-compilation toolchains
+        if [[ "${{ matrix.cross_compile }}" == "true" ]]; then
+          case "${{ matrix.target }}" in
+            "aarch64-linux-gnu")
+              sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+              ;;
+            "arm-linux-gnueabihf")
+              sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+              ;;
+            "x86_64-w64-mingw32")
+              sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+              ;;
+          esac
+        fi
+
+    - name: Install build dependencies (macOS)
+      if: matrix.os == 'macos-13' || matrix.os == 'macos-14'
+      run: |
+        brew install cmake ninja ccache
+
+    - name: Install build dependencies (Windows)
+      if: matrix.os == 'windows-2022'
+      run: |
+        choco install cmake ninja
+
+    - name: Setup ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        key: ${{ matrix.target }}-${{ matrix.package_type }}-${{ needs.prepare.outputs.tag }}
+        restore-keys: |
+          ${{ matrix.target }}-${{ matrix.package_type }}-${{ needs.prepare.outputs.version_string }}
+          ${{ matrix.target }}-${{ matrix.package_type }}-
+          ${{ matrix.target }}-clang-
+        variant: ${{ matrix.ccache_variant }}
+        max-size: 2G
+
+    - name: Cache LLVM source
+      uses: actions/cache@v4
+      with:
+        path: llvm-project
+        key: llvm-source-${{ needs.prepare.outputs.tag }}
+        restore-keys: |
+          llvm-source-
+
+    - name: Cache build dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/pip
+          ~/Library/Caches/pip
+          %APPDATA%\pip\Cache
+          ~/.cargo/registry
+          ~/.cargo/git
+          ~/.npm
+          ~/AppData/Roaming/npm-cache
+        key: deps-${{ matrix.os }}-${{ hashFiles('**/package*.json', '**/Cargo.toml', '**/requirements*.txt') }}
+        restore-keys: |
+          deps-${{ matrix.os }}-
+
+    - name: Cache LLVM build artifacts
+      uses: actions/cache@v4
+      with:
+        path: |
+          llvm-build-${{ matrix.target }}
+          build/install-${{ matrix.target }}
+        key: llvm-build-${{ matrix.target }}-${{ matrix.package_type }}-${{ needs.prepare.outputs.tag }}-${{ hashFiles('Makefile', 'llvm-project/**/*.cmake', 'llvm-project/**/CMakeLists.txt') }}
+        restore-keys: |
+          llvm-build-${{ matrix.target }}-${{ matrix.package_type }}-${{ needs.prepare.outputs.tag }}-
+          llvm-build-${{ matrix.target }}-clang-${{ needs.prepare.outputs.tag }}-
+          llvm-build-${{ matrix.target }}-clang-
+
+    - name: Build ${{ matrix.package_type }} package
+      shell: bash
+      env:
+        TAG: ${{ needs.prepare.outputs.tag }}
+        CCACHE: "ON"
+      run: |
+        # Show build configuration
+        make debug
+
+        # Get LLVM source
+        make llvm-source
+
+        # Build the specific package type
+        make -j8 ${{ matrix.package_type }}-${{ matrix.target }}
+
+    - name: List generated packages
+      shell: bash
+      run: |
+        echo "Generated packages:"
+        ls -la build/*.tar.xz 2>/dev/null || echo "No packages found in build/"
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.target }}-${{ matrix.package_type }}-packages
+        path: |
+          build/*.tar.xz
+        # Shorter retention for PR builds, longer for releases
+        retention-days: ${{ github.event_name == 'pull_request' && 7 || 30 }}
+
+  release:
+    name: Create Release
+    needs: [prepare, build]
+    if: needs.prepare.outputs.upload == 'true' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Prepare release files
+      run: |
+        find artifacts -name "*.tar.xz" -exec mv {} . \;
+        echo "Release files:"
+        ls -la *.tar.xz
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ needs.prepare.outputs.tag }}
+        name: "Espressif LLVM ${{ needs.prepare.outputs.tag }}"
+        draft: false
+        prerelease: false
+        files: "*.tar.xz"
+        token: ${{ secrets.GITHUB_TOKEN }}
