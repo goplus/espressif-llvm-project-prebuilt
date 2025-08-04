@@ -81,34 +81,71 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package_type: [clang, libs-clang]
         include:
-          # Linux builds
+          # Linux builds - clang packages
           - target: x86_64-linux-gnu
+            package_type: clang
+            os: ubuntu-22.04
+            runner: ubuntu-22.04
+            ccache_variant: sccache
+          - target: x86_64-linux-gnu
+            package_type: libs-clang
             os: ubuntu-22.04
             runner: ubuntu-22.04
             ccache_variant: sccache
           - target: aarch64-linux-gnu
+            package_type: clang
+            os: ubuntu-22.04
+            runner: ubuntu-22.04
+            ccache_variant: ccache
+            cross_compile: true
+          - target: aarch64-linux-gnu
+            package_type: libs-clang
             os: ubuntu-22.04
             runner: ubuntu-22.04
             ccache_variant: ccache
             cross_compile: true
           - target: arm-linux-gnueabihf
+            package_type: clang
+            os: ubuntu-22.04
+            runner: ubuntu-22.04
+            ccache_variant: ccache
+            cross_compile: true
+          - target: arm-linux-gnueabihf
+            package_type: libs-clang
             os: ubuntu-22.04
             runner: ubuntu-22.04
             ccache_variant: ccache
             cross_compile: true
           # Windows builds  
           - target: x86_64-w64-mingw32
+            package_type: clang
+            os: windows-2022
+            runner: windows-2022
+            ccache_variant: sccache
+          - target: x86_64-w64-mingw32
+            package_type: libs-clang
             os: windows-2022
             runner: windows-2022
             ccache_variant: sccache
           # macOS builds
           - target: x86_64-apple-darwin
+            package_type: clang
+            os: macos-13
+            runner: macos-13
+            ccache_variant: sccache
+          - target: x86_64-apple-darwin
+            package_type: libs-clang
             os: macos-13
             runner: macos-13
             ccache_variant: sccache
           - target: aarch64-apple-darwin
+            package_type: clang
+            os: macos-14
+            runner: macos-14
+            ccache_variant: sccache
+          - target: aarch64-apple-darwin
+            package_type: libs-clang
             os: macos-14
             runner: macos-14
             ccache_variant: sccache
