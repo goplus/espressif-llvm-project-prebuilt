@@ -158,6 +158,40 @@ jobs:
         variant: ${{ matrix.ccache_variant }}
         max-size: 2G
 
+    - name: Cache LLVM source
+      uses: actions/cache@v4
+      with:
+        path: llvm-project
+        key: llvm-source-${{ needs.prepare.outputs.tag }}
+        restore-keys: |
+          llvm-source-
+
+    - name: Cache build dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/pip
+          ~/Library/Caches/pip
+          %APPDATA%\pip\Cache
+          ~/.cargo/registry
+          ~/.cargo/git
+          ~/.npm
+          ~/AppData/Roaming/npm-cache
+        key: deps-${{ matrix.os }}-${{ hashFiles('**/package*.json', '**/Cargo.toml', '**/requirements*.txt') }}
+        restore-keys: |
+          deps-${{ matrix.os }}-
+
+    - name: Cache LLVM build artifacts
+      uses: actions/cache@v4
+      with:
+        path: |
+          llvm-build-${{ matrix.target }}
+          build/install-${{ matrix.target }}
+        key: llvm-build-${{ matrix.target }}-${{ needs.prepare.outputs.tag }}-${{ hashFiles('Makefile', 'llvm-project/**/*.cmake', 'llvm-project/**/CMakeLists.txt') }}
+        restore-keys: |
+          llvm-build-${{ matrix.target }}-${{ needs.prepare.outputs.tag }}-
+          llvm-build-${{ matrix.target }}-
+
     - name: Build packages
       shell: bash
       env:
