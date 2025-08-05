@@ -4,7 +4,7 @@
 # Version and tag configuration
 # TAG can be passed as parameter: make TAG=19.1.2_20250312
 TAG ?= 19.1.2_20250312
-VERSION_STRING = esp-$(TAG)
+VERSION_STRING = $(TAG)
 
 # Default build and source directories
 LLVM_BUILDDIR ?= llvm-build
@@ -45,7 +45,7 @@ NINJA_BUILD_TARGETS = clang llvm-config llvm-ar llvm-nm lld $(addprefix lib/lib,
 .PHONY: all clean llvm-source help
 .PHONY: $(BUILD_TARGETS)
 .PHONY: $(addprefix clang-,$(BUILD_TARGETS))
-.PHONY: $(addprefix libs-clang-,$(BUILD_TARGETS))
+.PHONY: $(addprefix esp-clang-,$(BUILD_TARGETS))
 
 # Default target
 all: help
@@ -55,14 +55,14 @@ help: ## Show this help message
 	@echo "Espressif LLVM Cross-Platform Build System"
 	@echo ""
 	@echo "Available targets:"
-	@echo "  all-clang          - Build clang packages for all targets"
-	@echo "  all-libs           - Build libs packages for all targets"
-	@echo "  all-packages       - Build both clang and libs packages for all targets"
+	@echo "  all-esp-clang      - Build esp-clang packages for all targets"
+	@echo "  all-packages       - Build esp-clang packages for all targets"
+	@echo "  all-clang          - Legacy alias for all-esp-clang"
+	@echo "  all-libs           - Legacy alias for all-esp-clang"
 	@echo ""
 	@echo "Individual targets:"
 	@for target in $(BUILD_TARGETS); do \
-		echo "  clang-$$target     - Build clang package for $$target"; \
-		echo "  libs-clang-$$target - Build libs package for $$target"; \
+		echo "  esp-clang-$$target - Build esp-clang package for $$target"; \
 	done
 	@echo ""
 	@echo "Utility targets:"
@@ -75,9 +75,12 @@ help: ## Show this help message
 	@echo "  VERSION_STRING=$(VERSION_STRING)"
 
 # Meta targets
-all-clang: $(addprefix clang-,$(BUILD_TARGETS)) ## Build clang packages for all targets
-all-libs: $(addprefix libs-clang-,$(BUILD_TARGETS)) ## Build libs packages for all targets
-all-packages: all-clang all-libs ## Build both clang and libs packages for all targets
+all-esp-clang: $(addprefix esp-clang-,$(BUILD_TARGETS)) ## Build esp-clang packages for all targets
+all-packages: all-esp-clang ## Build esp-clang packages for all targets
+
+# Legacy aliases for backward compatibility
+all-clang: all-esp-clang
+all-libs: all-esp-clang
 
 # Extract version from TAG to determine branch name
 # TAG format: 19.1.2_20250312 -> branch: xtensa_release_19.1.2
@@ -151,39 +154,31 @@ define build_llvm
 cd $(call get_build_dir,$(1)) && ninja $(NINJA_BUILD_TARGETS) && ninja install
 endef
 
-# Create clang package
-define create_clang_package
-mkdir -p build/clang-$(1) && \
-cp -r build/install-$(1)/bin build/clang-$(1)/ && \
-cp -r build/install-$(1)/include build/clang-$(1)/ && \
-cp -r build/install-$(1)/share build/clang-$(1)/ && \
+# Create esp-clang package (includes both clang and libs)
+define create_esp_clang_package
+mkdir -p build/esp-clang && \
+cp -r build/install-$(1)/bin build/esp-clang/ && \
+cp -r build/install-$(1)/include build/esp-clang/ && \
+cp -r build/install-$(1)/share build/esp-clang/ && \
+cp -r build/install-$(1)/lib build/esp-clang/ && \
 cd build && \
-tar -cJf clang-$(VERSION_STRING)-$(1).tar.xz clang-$(1)/
-endef
-
-# Create libs package
-define create_libs_package
-mkdir -p build/libs-clang-$(1) && \
-cp -r build/install-$(1)/lib build/libs-clang-$(1)/ && \
-cd build && \
-tar -cJf libs-clang-$(VERSION_STRING)-$(1).tar.xz libs-clang-$(1)/
+tar -cJf clang-esp-$(VERSION_STRING)-$(1).tar.xz esp-clang/
 endef
 
 # Individual target rules
 define make_target_rules
-$(1): clang-$(1) libs-clang-$(1)
+$(1): esp-clang-$(1)
 
-clang-$(1): llvm-source $(if $(findstring linux-gnu,$(1)),check-$(1),) $(if $(findstring gnueabihf,$(1)),check-$(1),) $(if $(findstring mingw32,$(1)),check-$(1),) ## Build clang package for $(1)
-	@echo "Building clang for $(1)..."
+esp-clang-$(1): llvm-source $(if $(findstring linux-gnu,$(1)),check-$(1),) $(if $(findstring gnueabihf,$(1)),check-$(1),) $(if $(findstring mingw32,$(1)),check-$(1),) ## Build esp-clang package for $(1)
+	@echo "Building esp-clang for $(1)..."
 	$(call configure_llvm,$(1))
 	$(call build_llvm,$(1))
-	$(call create_clang_package,$(1))
-	@echo "Created: build/clang-$(VERSION_STRING)-$(1).tar.xz"
+	$(call create_esp_clang_package,$(1))
+	@echo "Created: build/clang-esp-$(VERSION_STRING)-$(1).tar.xz"
 
-libs-clang-$(1): clang-$(1) ## Build libs package for $(1) (reuses clang build)
-	@echo "Building libs for $(1)..."
-	$(call create_libs_package,$(1))
-	@echo "Created: build/libs-clang-$(VERSION_STRING)-$(1).tar.xz"
+# Legacy aliases for backward compatibility
+clang-$(1): esp-clang-$(1)
+libs-clang-$(1): esp-clang-$(1)
 endef
 
 # Cross-compilation dependency checks
@@ -217,6 +212,5 @@ debug: ## Show build configuration
 	@echo ""
 	@echo "Example package names:"
 	@for target in $(BUILD_TARGETS); do \
-		echo "  clang-$(VERSION_STRING)-$$target.tar.xz"; \
-		echo "  libs-clang-$(VERSION_STRING)-$$target.tar.xz"; \
+		echo "  clang-esp-$(VERSION_STRING)-$$target.tar.xz"; \
 	done
