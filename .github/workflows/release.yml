@@ -157,6 +157,8 @@ jobs:
         # Build the esp-clang package (use all available CPU cores)
         if [[ "${{ runner.os }}" == "Windows" ]]; then
           NPROC=$NUMBER_OF_PROCESSORS
+        elif [[ "${{ runner.os }}" == "macOS" ]]; then
+          NPROC=$(sysctl -n hw.ncpu)
         else
           NPROC=$(nproc)
         fi
