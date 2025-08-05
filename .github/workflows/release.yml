@@ -76,79 +76,35 @@ jobs:
         echo "  Upload: $upload"
 
   build:
-    name: Build ${{ matrix.package_type }} for ${{ matrix.target }}
+    name: Build esp-clang for ${{ matrix.target }}
     needs: prepare
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux builds - clang packages
+          # Linux builds
           - target: x86_64-linux-gnu
-            package_type: clang
             os: ubuntu-22.04
             runner: ubuntu-22.04
-            ccache_variant: sccache
-          - target: x86_64-linux-gnu
-            package_type: libs-clang
-            os: ubuntu-22.04
-            runner: ubuntu-22.04
-            ccache_variant: sccache
           - target: aarch64-linux-gnu
-            package_type: clang
             os: ubuntu-22.04
             runner: ubuntu-22.04
-            ccache_variant: ccache
-            cross_compile: true
-          - target: aarch64-linux-gnu
-            package_type: libs-clang
-            os: ubuntu-22.04
-            runner: ubuntu-22.04
-            ccache_variant: ccache
             cross_compile: true
           - target: arm-linux-gnueabihf
-            package_type: clang
             os: ubuntu-22.04
             runner: ubuntu-22.04
-            ccache_variant: ccache
-            cross_compile: true
-          - target: arm-linux-gnueabihf
-            package_type: libs-clang
-            os: ubuntu-22.04
-            runner: ubuntu-22.04
-            ccache_variant: ccache
             cross_compile: true
           # Windows builds  
           - target: x86_64-w64-mingw32
-            package_type: clang
             os: windows-2022
             runner: windows-2022
-            ccache_variant: sccache
-          - target: x86_64-w64-mingw32
-            package_type: libs-clang
-            os: windows-2022
-            runner: windows-2022
-            ccache_variant: sccache
           # macOS builds
           - target: x86_64-apple-darwin
-            package_type: clang
             os: macos-13
             runner: macos-13
-            ccache_variant: sccache
-          - target: x86_64-apple-darwin
-            package_type: libs-clang
-            os: macos-13
-            runner: macos-13
-            ccache_variant: sccache
           - target: aarch64-apple-darwin
-            package_type: clang
             os: macos-14
             runner: macos-14
-            ccache_variant: sccache
-          - target: aarch64-apple-darwin
-            package_type: libs-clang
-            os: macos-14
-            runner: macos-14
-            ccache_variant: sccache
 
     runs-on: ${{ matrix.runner }}
 
@@ -160,7 +116,7 @@ jobs:
       if: matrix.os == 'ubuntu-22.04'
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential cmake ninja-build ccache
+        sudo apt-get install -y build-essential cmake ninja-build
         # Install cross-compilation toolchains
         if [[ "${{ matrix.cross_compile }}" == "true" ]]; then
           case "${{ matrix.target }}" in
@@ -179,64 +135,18 @@ jobs:
     - name: Install build dependencies (macOS)
       if: matrix.os == 'macos-13' || matrix.os == 'macos-14'
       run: |
-        brew install cmake ninja ccache
+        brew install cmake ninja
 
     - name: Install build dependencies (Windows)
       if: matrix.os == 'windows-2022'
       run: |
         choco install cmake ninja
 
-    - name: Setup ccache
-      uses: hendrikmuhs/ccache-action@v1.2
-      with:
-        key: ${{ matrix.target }}-${{ matrix.package_type }}-${{ needs.prepare.outputs.tag }}
-        restore-keys: |
-          ${{ matrix.target }}-${{ matrix.package_type }}-${{ needs.prepare.outputs.version_string }}
-          ${{ matrix.target }}-${{ matrix.package_type }}-
-          ${{ matrix.target }}-clang-
-        variant: ${{ matrix.ccache_variant }}
-        max-size: 2G
 
-    - name: Cache LLVM source
-      uses: actions/cache@v4
-      with:
-        path: llvm-project
-        key: llvm-source-${{ needs.prepare.outputs.tag }}
-        restore-keys: |
-          llvm-source-
-
-    - name: Cache build dependencies
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/pip
-          ~/Library/Caches/pip
-          %APPDATA%\pip\Cache
-          ~/.cargo/registry
-          ~/.cargo/git
-          ~/.npm
-          ~/AppData/Roaming/npm-cache
-        key: deps-${{ matrix.os }}-${{ hashFiles('**/package*.json', '**/Cargo.toml', '**/requirements*.txt') }}
-        restore-keys: |
-          deps-${{ matrix.os }}-
-
-    - name: Cache LLVM build artifacts
-      uses: actions/cache@v4
-      with:
-        path: |
-          llvm-build-${{ matrix.target }}
-          build/install-${{ matrix.target }}
-        key: llvm-build-${{ matrix.target }}-${{ matrix.package_type }}-${{ needs.prepare.outputs.tag }}-${{ hashFiles('Makefile', 'llvm-project/**/*.cmake', 'llvm-project/**/CMakeLists.txt') }}
-        restore-keys: |
-          llvm-build-${{ matrix.target }}-${{ matrix.package_type }}-${{ needs.prepare.outputs.tag }}-
-          llvm-build-${{ matrix.target }}-clang-${{ needs.prepare.outputs.tag }}-
-          llvm-build-${{ matrix.target }}-clang-
-
-    - name: Build ${{ matrix.package_type }} package
+    - name: Build esp-clang package
       shell: bash
       env:
         TAG: ${{ needs.prepare.outputs.tag }}
-        CCACHE: "ON"
       run: |
         # Show build configuration
         make debug
@@ -244,8 +154,15 @@ jobs:
         # Get LLVM source
         make llvm-source
 
-        # Build the specific package type
-        make -j8 ${{ matrix.package_type }}-${{ matrix.target }}
+        # Build the esp-clang package (use all available CPU cores)
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          NPROC=$NUMBER_OF_PROCESSORS
+        elif [[ "${{ runner.os }}" == "macOS" ]]; then
+          NPROC=$(sysctl -n hw.ncpu)
+        else
+          NPROC=$(nproc)
+        fi
+        make -j$NPROC esp-clang-${{ matrix.target }}
 
     - name: List generated packages
       shell: bash
@@ -256,7 +173,7 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.target }}-${{ matrix.package_type }}-packages
+        name: ${{ matrix.target }}-esp-clang-packages
         path: |
           build/*.tar.xz
         # Shorter retention for PR builds, longer for releases
