@@ -10,7 +10,7 @@ on:
       - synchronize
       - reopened
     paths:
-      - 'Makefile'
+      - 'release.sh'
       - '.github/workflows/release.yml'
       - '**.md'
   workflow_dispatch:
@@ -82,29 +82,43 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux builds
+          # Linux x86_64 builds (native)
           - target: x86_64-linux-gnu
             os: ubuntu-22.04
             runner: ubuntu-22.04
+            build_method: native
+
+          # ARM builds using Docker with QEMU
           - target: aarch64-linux-gnu
             os: ubuntu-22.04
             runner: ubuntu-22.04
-            cross_compile: true
+            build_method: docker
+            container_image: ubuntu:22.04
+            container_platform: linux/arm64
+
           - target: arm-linux-gnueabihf
             os: ubuntu-22.04
             runner: ubuntu-22.04
-            cross_compile: true
-          # Windows builds  
-          - target: x86_64-w64-mingw32
-            os: windows-2022
-            runner: windows-2022
+            build_method: docker
+            container_image: ubuntu:22.04
+            container_platform: linux/arm/v7
+
+          # Windows builds
+          # - target: x86_64-w64-mingw32
+          #   os: windows-2022
+          #   runner: windows-2022
+          #   build_method: native
+
           # macOS builds
           - target: x86_64-apple-darwin
             os: macos-13
             runner: macos-13
+            build_method: native
+
           - target: aarch64-apple-darwin
             os: macos-14
             runner: macos-14
+            build_method: native
 
     runs-on: ${{ matrix.runner }}
 
@@ -112,25 +126,77 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Install build dependencies (Linux)
-      if: matrix.os == 'ubuntu-22.04'
+    # 设置 QEMU 和 Docker Buildx (只对需要的平台)
+    - name: Set up QEMU
+      if: matrix.build_method == 'docker'
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: ${{ matrix.container_platform }}
+
+    - name: Set up Docker Buildx
+      if: matrix.build_method == 'docker'
+      uses: docker/setup-buildx-action@v3
+
+    # Docker 构建方式
+    - name: Build with Docker (ARM platforms)
+      if: matrix.build_method == 'docker'
+      run: |
+        # 创建构建用的 Dockerfile
+        cat > Dockerfile.build << 'EOF'
+        ARG PLATFORM
+        FROM --platform=${PLATFORM} ubuntu:22.04
+
+        # 安装基础构建依赖
+        RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            git \
+            curl \
+            wget \
+            pkg-config \
+            python3 \
+            python3-pip \
+            ca-certificates \
+            && rm -rf /var/lib/apt/lists/*
+
+        # 设置工作目录
+        WORKDIR /workspace
+
+        # 复制源代码
+        COPY . .
+
+        # 构建脚本
+        ARG TARGET
+        ARG TAG
+        RUN chmod +x ./release.sh && \
+            TAG=${TAG} ./release.sh ${TARGET}
+
+        # 确保输出目录存在
+        RUN mkdir -p /workspace/dist
+        EOF
+
+        # 执行 Docker 构建
+        docker buildx build \
+          --platform ${{ matrix.container_platform }} \
+          --build-arg PLATFORM=${{ matrix.container_platform }} \
+          --build-arg TARGET=${{ matrix.target }} \
+          --build-arg TAG=${{ needs.prepare.outputs.tag }} \
+          --file Dockerfile.build \
+          --output type=local,dest=./build-output \
+          .
+
+        # 复制构建结果
+        mkdir -p dist
+        if [ -d "build-output/workspace/dist" ]; then
+          cp -r build-output/workspace/dist/* dist/ || true
+        fi
+
+    - name: Install build dependencies (Linux - Native)
+      if: matrix.os == 'ubuntu-22.04' && matrix.build_method == 'native'
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential cmake ninja-build
-        # Install cross-compilation toolchains
-        if [[ "${{ matrix.cross_compile }}" == "true" ]]; then
-          case "${{ matrix.target }}" in
-            "aarch64-linux-gnu")
-              sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-              ;;
-            "arm-linux-gnueabihf")
-              sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
-              ;;
-            "x86_64-w64-mingw32")
-              sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
-              ;;
-          esac
-        fi
 
     - name: Install build dependencies (macOS)
       if: matrix.os == 'macos-13' || matrix.os == 'macos-14'
@@ -142,41 +208,82 @@ jobs:
       run: |
         choco install cmake ninja
 
-
-    - name: Build esp-clang package
+    - name: Build esp-clang package (Native)
+      if: matrix.build_method == 'native'
       shell: bash
       env:
         TAG: ${{ needs.prepare.outputs.tag }}
-      run: |
-        # Show build configuration
-        make debug
-
-        # Get LLVM source
-        make llvm-source
-
-        # Build the esp-clang package (use all available CPU cores)
-        if [[ "${{ runner.os }}" == "Windows" ]]; then
-          NPROC=$NUMBER_OF_PROCESSORS
-        elif [[ "${{ runner.os }}" == "macOS" ]]; then
-          NPROC=$(sysctl -n hw.ncpu)
-        else
-          NPROC=$(nproc)
-        fi
-        make -j$NPROC esp-clang-${{ matrix.target }}
+      run: ./release.sh ${{ matrix.target }}
 
     - name: List generated packages
       shell: bash
       run: |
         echo "Generated packages:"
-        ls -la build/*.tar.xz 2>/dev/null || echo "No packages found in build/"
+        ls -la dist/*.tar.xz 2>/dev/null || echo "No packages found in dist/"
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.target }}-esp-clang-packages
         path: |
-          build/*.tar.xz
+          dist/*.tar.xz
         # Shorter retention for PR builds, longer for releases
+        retention-days: ${{ github.event_name == 'pull_request' && 7 || 30 }}
+
+  # 备选方案：使用交叉编译工具链
+  build-cross-compile:
+    name: Build esp-clang for ${{ matrix.target }} (Cross-compile)
+    needs: prepare
+    # 如果 Docker 方案有问题，可以启用此备选方案
+    if: false  # 设置为 true 来启用交叉编译方案
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-linux-gnu
+            runner: ubuntu-22.04
+            cross_prefix: aarch64-linux-gnu
+            toolchain_package: gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          - target: arm-linux-gnueabihf
+            runner: ubuntu-22.04
+            cross_prefix: arm-linux-gnueabihf
+            toolchain_package: gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install cross-compilation toolchain
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake ninja-build
+        sudo apt-get install -y ${{ matrix.toolchain_package }}
+
+    - name: Build with cross-compilation
+      shell: bash
+      env:
+        TAG: ${{ needs.prepare.outputs.tag }}
+        CC: ${{ matrix.cross_prefix }}-gcc
+        CXX: ${{ matrix.cross_prefix }}-g++
+        AR: ${{ matrix.cross_prefix }}-ar
+        STRIP: ${{ matrix.cross_prefix }}-strip
+        CROSS_COMPILE: ${{ matrix.cross_prefix }}-
+      run: ./release.sh ${{ matrix.target }}
+
+    - name: List generated packages
+      shell: bash
+      run: |
+        echo "Generated packages:"
+        ls -la dist/*.tar.xz 2>/dev/null || echo "No packages found in dist/"
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.target }}-esp-clang-packages-cross
+        path: |
+          dist/*.tar.xz
         retention-days: ${{ github.event_name == 'pull_request' && 7 || 30 }}
 
   release:

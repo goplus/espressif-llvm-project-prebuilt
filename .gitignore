@@ -1,2 +1,6 @@
 build/
 llvm-build-*/
+.vscode/
+dist/
+install/
+llvm-project/
