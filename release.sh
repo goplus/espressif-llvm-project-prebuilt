@@ -258,6 +258,7 @@ EOF
 -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-unknown-linux-gnu
 -DLLVM_HOST_TRIPLE=aarch64-unknown-linux-gnu
 -DLLVM_TARGET_ARCH=AArch64
+-DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON
 EOF
                 ;;
             arm-linux-gnueabihf)
@@ -277,6 +278,7 @@ EOF
 -DLLVM_DEFAULT_TARGET_TRIPLE=arm-unknown-linux-gnueabihf
 -DLLVM_HOST_TRIPLE=arm-unknown-linux-gnueabihf
 -DLLVM_TARGET_ARCH=ARM
+-DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON
 EOF
                 ;;
             x86_64-linux-gnu)
@@ -298,6 +300,7 @@ EOF
 -DLLVM_DEFAULT_TARGET_TRIPLE=x86_64-unknown-linux-gnu
 -DLLVM_HOST_TRIPLE=x86_64-unknown-linux-gnu
 -DLLVM_TARGET_ARCH=X86
+-DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON
 EOF
                 fi
                 ;;
@@ -423,32 +426,22 @@ get_platform_cmake_args() {
 setup_cross_compile_env() {
     local target="$1"
 
+    # Only set environment variables for tools that CMake doesn't handle directly
     case "$target" in
         aarch64-linux-gnu)
             if [[ "$HOST_OS" == "Linux" && "$HOST_ARCH" != "aarch64" ]]; then
-                export CC=aarch64-linux-gnu-gcc
-                export CXX=aarch64-linux-gnu-g++
-                export AR=aarch64-linux-gnu-ar
-                export RANLIB=aarch64-linux-gnu-ranlib
+                # Let CMake handle the toolchain, only set what's needed
                 export STRIP=aarch64-linux-gnu-strip
             fi
             ;;
         arm-linux-gnueabihf)
             if [[ "$HOST_OS" == "Linux" && "$HOST_ARCH" != "arm" ]]; then
-                export CC=arm-linux-gnueabihf-gcc
-                export CXX=arm-linux-gnueabihf-g++
-                export AR=arm-linux-gnueabihf-ar
-                export RANLIB=arm-linux-gnueabihf-ranlib
                 export STRIP=arm-linux-gnueabihf-strip
             fi
             ;;
         x86_64-linux-gnu)
             if [[ "$HOST_OS" == "Linux" && "$HOST_ARCH" != "x86_64" ]]; then
                 if command -v x86_64-linux-gnu-gcc >/dev/null 2>&1; then
-                    export CC=x86_64-linux-gnu-gcc
-                    export CXX=x86_64-linux-gnu-g++
-                    export AR=x86_64-linux-gnu-ar
-                    export RANLIB=x86_64-linux-gnu-ranlib
                     export STRIP=x86_64-linux-gnu-strip
                 fi
             fi
