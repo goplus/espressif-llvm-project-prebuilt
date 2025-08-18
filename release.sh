@@ -203,6 +203,46 @@ get_macos_cmake_args() {
 EOF
 }
 
+# Function to verify cross-compilation tools
+verify_cross_tools() {
+    local target="$1"
+
+    case "$target" in
+        aarch64-linux-gnu)
+            if [[ "$HOST_OS" == "Linux" && "$HOST_ARCH" != "aarch64" ]]; then
+                echo "Verifying aarch64 cross-compilation tools..."
+                if ! command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
+                    echo "Error: aarch64-linux-gnu-gcc not found in PATH"
+                    return 1
+                fi
+                if ! command -v aarch64-linux-gnu-ar >/dev/null 2>&1; then
+                    echo "Error: aarch64-linux-gnu-ar not found in PATH"
+                    return 1
+                fi
+                echo "Tools found: gcc=$(which aarch64-linux-gnu-gcc), ar=$(which aarch64-linux-gnu-ar)"
+            fi
+            ;;
+        arm-linux-gnueabihf)
+            if [[ "$HOST_OS" == "Linux" && "$HOST_ARCH" != "arm" ]]; then
+                if ! command -v arm-linux-gnueabihf-gcc >/dev/null 2>&1; then
+                    echo "Error: arm-linux-gnueabihf cross-compilation tools not found"
+                    return 1
+                fi
+            fi
+            ;;
+        x86_64-w64-mingw32)
+            if [[ "$HOST_OS" == "Linux" ]]; then
+                if ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+                    echo "Error: x86_64-w64-mingw32 cross-compilation tools not found"
+                    return 1
+                fi
+            fi
+            ;;
+    esac
+
+    return 0
+}
+
 # Linux-specific CMake arguments with cross-compilation support
 get_linux_cmake_args() {
     local target="$1"
@@ -426,33 +466,47 @@ get_platform_cmake_args() {
 setup_cross_compile_env() {
     local target="$1"
 
-    # Only set environment variables for tools that CMake doesn't handle directly
+    # Clear any existing cross-compilation variables to avoid conflicts
+    unset CC CXX AR RANLIB STRIP
+
     case "$target" in
         aarch64-linux-gnu)
             if [[ "$HOST_OS" == "Linux" && "$HOST_ARCH" != "aarch64" ]]; then
-                # Let CMake handle the toolchain, only set what's needed
-                export STRIP=aarch64-linux-gnu-strip
+                # Set environment variables with full paths
+                export CC=$(which aarch64-linux-gnu-gcc)
+                export CXX=$(which aarch64-linux-gnu-g++)
+                export AR=$(which aarch64-linux-gnu-ar)
+                export RANLIB=$(which aarch64-linux-gnu-ranlib)
+                export STRIP=$(which aarch64-linux-gnu-strip)
             fi
             ;;
         arm-linux-gnueabihf)
             if [[ "$HOST_OS" == "Linux" && "$HOST_ARCH" != "arm" ]]; then
-                export STRIP=arm-linux-gnueabihf-strip
+                export CC=$(which arm-linux-gnueabihf-gcc)
+                export CXX=$(which arm-linux-gnueabihf-g++)
+                export AR=$(which arm-linux-gnueabihf-ar)
+                export RANLIB=$(which arm-linux-gnueabihf-ranlib)
+                export STRIP=$(which arm-linux-gnueabihf-strip)
             fi
             ;;
         x86_64-linux-gnu)
             if [[ "$HOST_OS" == "Linux" && "$HOST_ARCH" != "x86_64" ]]; then
                 if command -v x86_64-linux-gnu-gcc >/dev/null 2>&1; then
-                    export STRIP=x86_64-linux-gnu-strip
+                    export CC=$(which x86_64-linux-gnu-gcc)
+                    export CXX=$(which x86_64-linux-gnu-g++)
+                    export AR=$(which x86_64-linux-gnu-ar)
+                    export RANLIB=$(which x86_64-linux-gnu-ranlib)
+                    export STRIP=$(which x86_64-linux-gnu-strip)
                 fi
             fi
             ;;
         x86_64-w64-mingw32)
             if [[ "$HOST_OS" == "Linux" ]]; then
-                export CC=x86_64-w64-mingw32-gcc
-                export CXX=x86_64-w64-mingw32-g++
-                export AR=x86_64-w64-mingw32-ar
-                export RANLIB=x86_64-w64-mingw32-ranlib
-                export STRIP=x86_64-w64-mingw32-strip
+                export CC=$(which x86_64-w64-mingw32-gcc)
+                export CXX=$(which x86_64-w64-mingw32-g++)
+                export AR=$(which x86_64-w64-mingw32-ar)
+                export RANLIB=$(which x86_64-w64-mingw32-ranlib)
+                export STRIP=$(which x86_64-w64-mingw32-strip)
             elif [[ "$HOST_OS" == "Windows_NT" ]]; then
                 if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
                     export CC=x86_64-w64-mingw32-gcc
@@ -623,6 +677,12 @@ build_platform() {
     if needs_cross_compilation "$target"; then
         is_cross_compile="true"
         echo "Cross-compilation required"
+
+        # Verify tools are available
+        if ! verify_cross_tools "$target"; then
+            echo "Cross-compilation tools verification failed"
+            return 1
+        fi
 
         # Build native tools first
         if [[ "$HOST_OS" == "Linux" ]]; then
