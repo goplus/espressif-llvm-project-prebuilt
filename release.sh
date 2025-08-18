@@ -111,15 +111,26 @@ download_llvm_source() {
 
 # Function to build native tools for cross-compilation
 build_native_tools() {
-    local target="$1"
-    local native_build_dir="$BUILD_DIR_BASE/native-tools-${target}"
-    local native_install_dir="$PWD/install/native-tools-${target}"
+    # Use host architecture for native tools directory name
+    local native_build_dir="$BUILD_DIR_BASE/native-tools-${HOST_ARCH}"
+    local native_install_dir="$PWD/install/native-tools-${HOST_ARCH}"
 
-    echo "Building native tools for ${target}..."
+    # Skip if already built
+    if [[ -f "$native_install_dir/bin/llvm-min-tblgen" && -f "$native_install_dir/bin/llvm-tblgen" ]]; then
+        echo "Native tools already built, reusing..."
+        export LLVM_NATIVE_TOOL_DIR="$native_install_dir/bin"
+        return 0
+    fi
+
+    echo "Building native tools..."
 
     mkdir -p "$native_build_dir" "$native_install_dir"
 
     cd "$native_build_dir"
+
+    # Clear any cross-compilation environment variables for native build
+    unset CC CXX AR RANLIB STRIP
+
     cmake "../../$LLVM_PROJECTDIR/llvm" \
         -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
@@ -622,7 +633,7 @@ build_platform() {
 
         # Build native tools first
         if [[ "$HOST_OS" == "Linux" ]]; then
-            build_native_tools "$target"
+            build_native_tools
         fi
     fi
 
@@ -666,12 +677,9 @@ build_platform() {
     # Create release package
     create_release_structure "$target" "$install_dir"
 
-    # Clean up build directory and native tools
+    # Clean up build directory, but keep shared native tools
     if [[ "${KEEP_BUILD_DIR:-false}" != "true" ]]; then
         rm -rf "$build_dir" "${build_dir}-stage2"
-        if [[ "$is_cross_compile" == "true" ]]; then
-            rm -rf "$BUILD_DIR_BASE/native-tools-${target}" "$PWD/install/native-tools-${target}"
-        fi
     fi
 
     echo "Build completed for $target"
