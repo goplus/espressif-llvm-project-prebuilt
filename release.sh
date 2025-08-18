@@ -24,6 +24,22 @@ else
     EXE=""
 fi
 
+# Detect host architecture
+HOST_ARCH="$(uname -m)"
+case "$HOST_ARCH" in
+    x86_64|amd64)
+        HOST_ARCH="x86_64"
+        ;;
+    aarch64|arm64)
+        HOST_ARCH="aarch64"
+        ;;
+    armv7l)
+        HOST_ARCH="arm"
+        ;;
+esac
+
+echo "Host system: $HOST_OS $HOST_ARCH"
+
 # Set macOS SDK root if on macOS
 if [[ "$HOST_OS" == "Darwin" ]]; then
     if [[ -z "$SDKROOT" ]]; then
@@ -50,7 +66,37 @@ show_usage() {
     echo "  TAG              - Version tag (default: $TAG)"
     echo "  LLVM_PROJECTDIR  - LLVM source directory (default: $LLVM_PROJECTDIR)"
     echo "  BUILD_DIR_BASE   - Build directory base (default: $BUILD_DIR_BASE)"
+    echo "  LLVM_NATIVE_TOOL_DIR - Directory containing native tablegen tools"
     echo ""
+}
+
+# Function to check if we need cross-compilation
+needs_cross_compilation() {
+    local target="$1"
+
+    case "$target" in
+        aarch64-linux-gnu)
+            [[ "$HOST_OS" == "Linux" && "$HOST_ARCH" != "aarch64" ]]
+            ;;
+        x86_64-linux-gnu)
+            [[ "$HOST_OS" == "Linux" && "$HOST_ARCH" != "x86_64" ]]
+            ;;
+        arm-linux-gnueabihf)
+            [[ "$HOST_OS" == "Linux" && "$HOST_ARCH" != "arm" ]]
+            ;;
+        aarch64-apple-darwin)
+            [[ "$HOST_OS" == "Darwin" && "$HOST_ARCH" != "aarch64" ]]
+            ;;
+        x86_64-apple-darwin)
+            [[ "$HOST_OS" == "Darwin" && "$HOST_ARCH" != "x86_64" ]]
+            ;;
+        x86_64-w64-mingw32)
+            [[ "$HOST_OS" != "Windows_NT" ]]
+            ;;
+        *)
+            false
+            ;;
+    esac
 }
 
 # Function to download LLVM source
@@ -61,6 +107,42 @@ download_llvm_source() {
     else
         echo "LLVM project directory already exists."
     fi
+}
+
+# Function to build native tools for cross-compilation
+build_native_tools() {
+    local target="$1"
+    local native_build_dir="$BUILD_DIR_BASE/native-tools-${target}"
+    local native_install_dir="$PWD/install/native-tools-${target}"
+
+    echo "Building native tools for ${target}..."
+
+    mkdir -p "$native_build_dir" "$native_install_dir"
+
+    cd "$native_build_dir"
+    cmake "../../$LLVM_PROJECTDIR/llvm" \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DLLVM_TARGETS_TO_BUILD="host" \
+        -DLLVM_BUILD_TOOLS=ON \
+        -DLLVM_BUILD_UTILS=ON \
+        -DLLVM_INCLUDE_TESTS=OFF \
+        -DLLVM_INCLUDE_EXAMPLES=OFF \
+        -DLLVM_INCLUDE_BENCHMARKS=OFF \
+        -DLLVM_INCLUDE_DOCS=OFF \
+        -DCMAKE_INSTALL_PREFIX="$native_install_dir"
+
+    # Build the tablegen tools
+    ninja -j$(get_cpu_cores) llvm-min-tblgen llvm-tblgen
+
+    # Manually copy the tools to install directory
+    mkdir -p "$native_install_dir/bin"
+    cp bin/llvm-min-tblgen "$native_install_dir/bin/"
+    cp bin/llvm-tblgen "$native_install_dir/bin/"
+
+    cd - > /dev/null
+
+    export LLVM_NATIVE_TOOL_DIR="$native_install_dir/bin"
 }
 
 # Base CMake arguments (from working script)
@@ -110,9 +192,13 @@ get_macos_cmake_args() {
 EOF
 }
 
-# Linux-specific CMake arguments (from working script)
+# Linux-specific CMake arguments with cross-compilation support
 get_linux_cmake_args() {
-    cat << 'EOF'
+    local target="$1"
+    local is_cross_compile="$2"
+
+    local base_args
+    base_args=$(cat << 'EOF'
 -DLLVM_ENABLE_LIBXML2=OFF
 -DLLVM_ENABLE_LIBCXX=OFF
 -DCLANG_DEFAULT_CXX_STDLIB=libstdc++
@@ -137,6 +223,80 @@ get_linux_cmake_args() {
 -DSANITIZER_CXX_ABI=libc++
 -DSANITIZER_TEST_CXX=libc++
 EOF
+)
+
+    echo "$base_args"
+
+    # Add cross-compilation specific arguments
+    if [[ "$is_cross_compile" == "true" ]]; then
+        case "$target" in
+            aarch64-linux-gnu)
+                cat << 'EOF'
+-DCMAKE_SYSTEM_NAME=Linux
+-DCMAKE_SYSTEM_PROCESSOR=aarch64
+-DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc
+-DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
+-DCMAKE_ASM_COMPILER=aarch64-linux-gnu-gcc
+-DCMAKE_AR=aarch64-linux-gnu-ar
+-DCMAKE_RANLIB=aarch64-linux-gnu-ranlib
+-DCMAKE_STRIP=aarch64-linux-gnu-strip
+-DCMAKE_FIND_ROOT_PATH=/usr/aarch64-linux-gnu
+-DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER
+-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
+-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
+-DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-unknown-linux-gnu
+-DLLVM_HOST_TRIPLE=aarch64-unknown-linux-gnu
+-DLLVM_TARGET_ARCH=AArch64
+EOF
+                ;;
+            arm-linux-gnueabihf)
+                cat << 'EOF'
+-DCMAKE_SYSTEM_NAME=Linux
+-DCMAKE_SYSTEM_PROCESSOR=arm
+-DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc
+-DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++
+-DCMAKE_ASM_COMPILER=arm-linux-gnueabihf-gcc
+-DCMAKE_AR=arm-linux-gnueabihf-ar
+-DCMAKE_RANLIB=arm-linux-gnueabihf-ranlib
+-DCMAKE_STRIP=arm-linux-gnueabihf-strip
+-DCMAKE_FIND_ROOT_PATH=/usr/arm-linux-gnueabihf
+-DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER
+-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
+-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
+-DLLVM_DEFAULT_TARGET_TRIPLE=arm-unknown-linux-gnueabihf
+-DLLVM_HOST_TRIPLE=arm-unknown-linux-gnueabihf
+-DLLVM_TARGET_ARCH=ARM
+EOF
+                ;;
+            x86_64-linux-gnu)
+                # Cross-compile from ARM64 to x86_64
+                if command -v x86_64-linux-gnu-gcc >/dev/null 2>&1; then
+                    cat << 'EOF'
+-DCMAKE_SYSTEM_NAME=Linux
+-DCMAKE_SYSTEM_PROCESSOR=x86_64
+-DCMAKE_C_COMPILER=x86_64-linux-gnu-gcc
+-DCMAKE_CXX_COMPILER=x86_64-linux-gnu-g++
+-DCMAKE_ASM_COMPILER=x86_64-linux-gnu-gcc
+-DCMAKE_AR=x86_64-linux-gnu-ar
+-DCMAKE_RANLIB=x86_64-linux-gnu-ranlib
+-DCMAKE_STRIP=x86_64-linux-gnu-strip
+-DCMAKE_FIND_ROOT_PATH=/usr/x86_64-linux-gnu
+-DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER
+-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
+-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
+-DLLVM_DEFAULT_TARGET_TRIPLE=x86_64-unknown-linux-gnu
+-DLLVM_HOST_TRIPLE=x86_64-unknown-linux-gnu
+-DLLVM_TARGET_ARCH=X86
+EOF
+                fi
+                ;;
+        esac
+
+        # Add native tool directory if available
+        if [[ -n "$LLVM_NATIVE_TOOL_DIR" ]]; then
+            echo "-DLLVM_NATIVE_TOOL_DIR=$LLVM_NATIVE_TOOL_DIR"
+        fi
+    fi
 }
 
 # MinGW-specific CMake arguments (修复版本)
@@ -193,8 +353,6 @@ EOF
 -DCLANG_DEFAULT_CXX_STDLIB=libstdc++
 -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF
--DLLVM_TABLEGEN=/usr/bin/llvm-tblgen
--DCLANG_TABLEGEN=/usr/bin/clang-tblgen
 -DLLVM_DEFAULT_TARGET_TRIPLE=x86_64-w64-mingw32
 -DLLVM_HOST_TRIPLE=x86_64-w64-mingw32
 -DLLVM_TARGET_ARCH=x86_64
@@ -221,19 +379,24 @@ EOF
 -DSANITIZER_CXX_ABI=libc++
 -DSANITIZER_TEST_CXX=libc++
 EOF
+        # Add native tool directory if available
+        if [[ -n "$LLVM_NATIVE_TOOL_DIR" ]]; then
+            echo "-DLLVM_NATIVE_TOOL_DIR=$LLVM_NATIVE_TOOL_DIR"
+        fi
     fi
 }
 
 # Function to get platform-specific CMake arguments
 get_platform_cmake_args() {
     local target="$1"
+    local is_cross_compile="$2"
 
     case "$target" in
         *-apple-darwin)
             get_macos_cmake_args "$target"
             ;;
         *-linux-gnu*)
-            get_linux_cmake_args
+            get_linux_cmake_args "$target" "$is_cross_compile"
             ;;
         *-mingw32)
             get_mingw_cmake_args
@@ -251,7 +414,7 @@ setup_cross_compile_env() {
 
     case "$target" in
         aarch64-linux-gnu)
-            if [[ "$HOST_OS" == "Linux" ]]; then
+            if [[ "$HOST_OS" == "Linux" && "$HOST_ARCH" != "aarch64" ]]; then
                 export CC=aarch64-linux-gnu-gcc
                 export CXX=aarch64-linux-gnu-g++
                 export AR=aarch64-linux-gnu-ar
@@ -260,12 +423,23 @@ setup_cross_compile_env() {
             fi
             ;;
         arm-linux-gnueabihf)
-            if [[ "$HOST_OS" == "Linux" ]]; then
+            if [[ "$HOST_OS" == "Linux" && "$HOST_ARCH" != "arm" ]]; then
                 export CC=arm-linux-gnueabihf-gcc
                 export CXX=arm-linux-gnueabihf-g++
                 export AR=arm-linux-gnueabihf-ar
                 export RANLIB=arm-linux-gnueabihf-ranlib
                 export STRIP=arm-linux-gnueabihf-strip
+            fi
+            ;;
+        x86_64-linux-gnu)
+            if [[ "$HOST_OS" == "Linux" && "$HOST_ARCH" != "x86_64" ]]; then
+                if command -v x86_64-linux-gnu-gcc >/dev/null 2>&1; then
+                    export CC=x86_64-linux-gnu-gcc
+                    export CXX=x86_64-linux-gnu-g++
+                    export AR=x86_64-linux-gnu-ar
+                    export RANLIB=x86_64-linux-gnu-ranlib
+                    export STRIP=x86_64-linux-gnu-strip
+                fi
             fi
             ;;
         x86_64-w64-mingw32)
@@ -276,7 +450,6 @@ setup_cross_compile_env() {
                 export RANLIB=x86_64-w64-mingw32-ranlib
                 export STRIP=x86_64-w64-mingw32-strip
             elif [[ "$HOST_OS" == "Windows_NT" ]]; then
-                # 确保使用 MinGW-W64 工具链
                 if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
                     export CC=x86_64-w64-mingw32-gcc
                     export CXX=x86_64-w64-mingw32-g++
@@ -316,33 +489,22 @@ create_release_structure() {
     local install_dir="$2"
     local release_dir="dist/${target}/esp-clang"
 
-    echo "Creating release structure in $release_dir..."
+    echo "Creating release package for $target..."
 
     # Create release directory
     rm -rf "dist/${target}"
     mkdir -p "$release_dir"
 
-    # Copy installation files
-    if [[ -d "$install_dir" ]]; then
-        cp -r "$install_dir"/* "$release_dir"/
-    else
-        echo "Warning: Install directory $install_dir not found"
-        return 1
-    fi
-
-    echo "Release directory created: $release_dir"
-    echo "Contents:"
-    ls -la "$release_dir"
+    # Copy the installed files
+    cp -r "$install_dir"/* "$release_dir"/
 
     # Create tarball
-    echo "Creating tarball package..."
     mkdir -p dist
     cd "dist/${target}"
     tar -cJf "../clang-esp-${VERSION_STRING}-${target}.tar.xz" esp-clang/
     cd - > /dev/null
 
-    echo "Tarball created: dist/clang-esp-${VERSION_STRING}-${target}.tar.xz"
-    echo "Package size: $(du -h "dist/clang-esp-${VERSION_STRING}-${target}.tar.xz" | cut -f1)"
+    echo "Package created: dist/clang-esp-${VERSION_STRING}-${target}.tar.xz ($(du -h "dist/clang-esp-${VERSION_STRING}-${target}.tar.xz" | cut -f1))"
 }
 
 # Function to build just LLVM/Clang without runtimes on first pass
@@ -446,77 +608,105 @@ build_stage2() {
     echo "Stage 2 completed successfully!"
 }
 
-# Main build function (修改为使用两阶段构建)
+# Main build function
 build_platform() {
     local target="$1"
 
-    echo "Building LLVM for platform: $target"
-    echo "Version: $VERSION_STRING"
-    echo "Host OS: $HOST_OS"
-    echo "LLVM Branch: $LLVM_BRANCH"
-    echo ""
+    echo "Building LLVM $VERSION_STRING for $target..."
+
+    # Check if we need cross-compilation
+    local is_cross_compile="false"
+    if needs_cross_compilation "$target"; then
+        is_cross_compile="true"
+        echo "Cross-compilation required"
+
+        # Build native tools first
+        if [[ "$HOST_OS" == "Linux" ]]; then
+            build_native_tools "$target"
+        fi
+    fi
 
     # Create build and install directories
     local build_dir="$BUILD_DIR_BASE/$target"
     local install_dir="$PWD/install/$target"
 
-    mkdir -p "$build_dir"
-    mkdir -p "$install_dir"
+    rm -rf "$build_dir" "$install_dir"
+    mkdir -p "$build_dir" "$install_dir"
 
     # Set up cross-compilation environment
     setup_cross_compile_env "$target"
 
-    # For MinGW, use two-stage build to avoid runtime configuration issues
+    # For MinGW, use two-stage build
     if [[ "$target" == *mingw32 ]]; then
-        echo "Using two-stage build for MinGW target..."
         build_stage1 "$target" "$build_dir" "$install_dir"
         build_stage2 "$target" "$build_dir" "$install_dir"
     else
-        # Single stage build for other targets
-        echo "Using single-stage build..."
-
-        # Prepare CMake arguments
+        # Single stage build
         local cmake_args_file=$(mktemp)
         {
             get_base_cmake_args
-            get_platform_cmake_args "$target"
+            get_platform_cmake_args "$target" "$is_cross_compile"
             echo "-DCMAKE_INSTALL_PREFIX=$install_dir"
         } > "$cmake_args_file"
 
-        echo "CMake configuration:"
-        cat "$cmake_args_file"
-        echo ""
-
-        # Configure
-        echo "Configuring build for $target..."
+        echo "Configuring..."
         cd "$build_dir"
         cmake "../../$LLVM_PROJECTDIR/llvm" $(cat "$cmake_args_file" | tr '\n' ' ')
 
-        # Build
-        echo "Building $target..."
-        local cores=$(get_cpu_cores)
-        echo "Using $cores CPU cores for build"
-        ninja -j"$cores"
+        echo "Building..."
+        ninja -j$(get_cpu_cores)
 
-        # Install
-        echo "Installing $target..."
+        echo "Installing..."
         ninja install
 
-        # Return to original directory
         cd - > /dev/null
-
-        # Clean up temporary file
         rm -f "$cmake_args_file"
     fi
 
-    # Create release directory structure
+    # Create release package
     create_release_structure "$target" "$install_dir"
 
-    echo ""
-    echo "Build completed successfully for $target!"
-    echo "Release directory: dist/${target}/esp-clang"
-    echo "Install directory: $install_dir"
-    echo "Tarball: dist/clang-esp-${VERSION_STRING}-${target}.tar.xz"
+    # Clean up build directory and native tools
+    if [[ "${KEEP_BUILD_DIR:-false}" != "true" ]]; then
+        rm -rf "$build_dir" "${build_dir}-stage2"
+        if [[ "$is_cross_compile" == "true" ]]; then
+            rm -rf "$BUILD_DIR_BASE/native-tools-${target}" "$PWD/install/native-tools-${target}"
+        fi
+    fi
+
+    echo "Build completed for $target"
+}
+
+# Function to check for required cross-compilation tools
+check_cross_compile_tools() {
+    local target="$1"
+
+    if ! needs_cross_compilation "$target"; then
+        return 0
+    fi
+
+    case "$target" in
+        aarch64-linux-gnu)
+            if [[ "$HOST_OS" == "Linux" ]] && ! command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
+                echo "Error: aarch64-linux-gnu cross-compilation tools not found"
+                return 1
+            fi
+            ;;
+        arm-linux-gnueabihf)
+            if [[ "$HOST_OS" == "Linux" ]] && ! command -v arm-linux-gnueabihf-gcc >/dev/null 2>&1; then
+                echo "Error: arm-linux-gnueabihf cross-compilation tools not found"
+                return 1
+            fi
+            ;;
+        x86_64-w64-mingw32)
+            if [[ "$HOST_OS" == "Linux" ]] && ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+                echo "Error: x86_64-w64-mingw32 cross-compilation tools not found"
+                return 1
+            fi
+            ;;
+    esac
+
+    return 0
 }
 
 # Main script logic
@@ -557,6 +747,11 @@ main() {
 
     if ! command -v git >/dev/null 2>&1; then
         echo "Error: git is required but not installed"
+        exit 1
+    fi
+
+    # Check for cross-compilation tools if needed
+    if ! check_cross_compile_tools "$target"; then
         exit 1
     fi
 
