@@ -10,7 +10,7 @@ on:
       - synchronize
       - reopened
     paths:
-      - 'Makefile'
+      - 'release.sh'
       - '.github/workflows/release.yml'
       - '**.md'
   workflow_dispatch:
@@ -82,26 +82,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux builds
+          # Linux x86_64 build
           - target: x86_64-linux-gnu
             os: ubuntu-22.04
             runner: ubuntu-22.04
+
+          # Linux ARM64 build
           - target: aarch64-linux-gnu
-            os: ubuntu-22.04
-            runner: ubuntu-22.04
-            cross_compile: true
-          - target: arm-linux-gnueabihf
-            os: ubuntu-22.04
-            runner: ubuntu-22.04
-            cross_compile: true
-          # Windows builds  
-          - target: x86_64-w64-mingw32
-            os: windows-2022
-            runner: windows-2022
-          # macOS builds
+            os: ubuntu-22.04-arm
+            runner: ubuntu-22.04-arm
+
+          # macOS x86_64 build
           - target: x86_64-apple-darwin
             os: macos-13
             runner: macos-13
+
+          # macOS ARM64 build
           - target: aarch64-apple-darwin
             os: macos-14
             runner: macos-14
@@ -113,69 +109,34 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Install build dependencies (Linux)
-      if: matrix.os == 'ubuntu-22.04'
+      if: matrix.os == 'ubuntu-22.04' || matrix.os == 'ubuntu-22.04-arm'
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential cmake ninja-build
-        # Install cross-compilation toolchains
-        if [[ "${{ matrix.cross_compile }}" == "true" ]]; then
-          case "${{ matrix.target }}" in
-            "aarch64-linux-gnu")
-              sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-              ;;
-            "arm-linux-gnueabihf")
-              sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
-              ;;
-            "x86_64-w64-mingw32")
-              sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
-              ;;
-          esac
-        fi
 
     - name: Install build dependencies (macOS)
       if: matrix.os == 'macos-13' || matrix.os == 'macos-14'
       run: |
         brew install cmake ninja
 
-    - name: Install build dependencies (Windows)
-      if: matrix.os == 'windows-2022'
-      run: |
-        choco install cmake ninja
-
-
     - name: Build esp-clang package
       shell: bash
       env:
         TAG: ${{ needs.prepare.outputs.tag }}
-      run: |
-        # Show build configuration
-        make debug
-
-        # Get LLVM source
-        make llvm-source
-
-        # Build the esp-clang package (use all available CPU cores)
-        if [[ "${{ runner.os }}" == "Windows" ]]; then
-          NPROC=$NUMBER_OF_PROCESSORS
-        elif [[ "${{ runner.os }}" == "macOS" ]]; then
-          NPROC=$(sysctl -n hw.ncpu)
-        else
-          NPROC=$(nproc)
-        fi
-        make -j$NPROC esp-clang-${{ matrix.target }}
+      run: ./release.sh ${{ matrix.target }}
 
     - name: List generated packages
       shell: bash
       run: |
         echo "Generated packages:"
-        ls -la build/*.tar.xz 2>/dev/null || echo "No packages found in build/"
+        ls -la dist/*.tar.xz 2>/dev/null || echo "No packages found in dist/"
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.target }}-esp-clang-packages
         path: |
-          build/*.tar.xz
+          dist/*.tar.xz
         # Shorter retention for PR builds, longer for releases
         retention-days: ${{ github.event_name == 'pull_request' && 7 || 30 }}
 
