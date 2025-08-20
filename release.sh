@@ -32,8 +32,8 @@ if [[ "$HOST_OS" == "Darwin" ]]; then
     fi
 fi
 
-# Supported build targets
-VALID_TARGETS="aarch64-apple-darwin aarch64-linux-gnu arm-linux-gnueabihf x86_64-apple-darwin x86_64-linux-gnu x86_64-w64-mingw32"
+# Supported build targets (native builds only)
+VALID_TARGETS="aarch64-apple-darwin aarch64-linux-gnu x86_64-apple-darwin x86_64-linux-gnu"
 
 # Function to show usage
 show_usage() {
@@ -63,7 +63,7 @@ download_llvm_source() {
     fi
 }
 
-# Base CMake arguments (from working script)
+# Base CMake arguments - common to all platforms
 get_base_cmake_args() {
     cat << 'EOF'
 -G Ninja
@@ -71,14 +71,17 @@ get_base_cmake_args() {
 -DLLVM_TARGETS_TO_BUILD=X86;ARM;AArch64;AVR;Mips;RISCV;WebAssembly
 -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=Xtensa
 -DLLVM_ENABLE_PROJECTS=clang;lld
--DLLVM_ENABLE_RUNTIMES=compiler-rt;libcxx;libcxxabi;libunwind;pstl
+-DLLVM_ENABLE_RUNTIMES=compiler-rt;libcxx;libcxxabi;libunwind
 -DLLVM_POLLY_LINK_INTO_TOOLS=ON
 -DLLVM_BUILD_EXTERNAL_COMPILER_RT=ON
 -DLLVM_ENABLE_EH=ON
--DLLVM_ENABLE_FFI=ON
 -DLLVM_ENABLE_RTTI=ON
 -DLLVM_INCLUDE_DOCS=OFF
+-DLLVM_INCLUDE_EXAMPLES=OFF
 -DLLVM_INCLUDE_TESTS=OFF
+-DLLVM_INCLUDE_BENCHMARKS=OFF
+-DLLVM_BUILD_DOCS=OFF
+-DLLVM_ENABLE_DOXYGEN=OFF
 -DLLVM_INSTALL_UTILS=ON
 -DLLVM_ENABLE_Z3_SOLVER=OFF
 -DLLVM_OPTIMIZED_TABLEGEN=ON
@@ -86,10 +89,38 @@ get_base_cmake_args() {
 -DLLVM_SOURCE_PREFIX=.
 -DLIBCXX_INSTALL_MODULES=ON
 -DCLANG_FORCE_MATCHING_LIBCLANG_SOVERSION=OFF
+-DCOMPILER_RT_BUILD_SANITIZERS=OFF
+-DCOMPILER_RT_BUILD_XRAY=OFF
+-DCOMPILER_RT_BUILD_LIBFUZZER=OFF
+-DCOMPILER_RT_BUILD_PROFILE=OFF
+-DCOMPILER_RT_BUILD_MEMPROF=OFF
+-DCOMPILER_RT_BUILD_ORC=OFF
+-DCOMPILER_RT_BUILD_GWP_ASAN=OFF
+-DCOMPILER_RT_BUILD_CTX_PROFILE=OFF
+-DCMAKE_POSITION_INDEPENDENT_CODE=ON
+-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF
+-DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON
+-DCOMPILER_RT_USE_BUILTINS_LIBRARY=ON
+-DLIBCXX_ENABLE_STATIC_ABI_LIBRARY=ON
+-DLIBCXX_STATICALLY_LINK_ABI_IN_SHARED_LIBRARY=OFF
+-DLIBCXX_STATICALLY_LINK_ABI_IN_STATIC_LIBRARY=ON
+-DLIBCXX_USE_COMPILER_RT=ON
+-DLIBCXX_HAS_ATOMIC_LIB=OFF
+-DLIBCXXABI_ENABLE_STATIC_UNWINDER=ON
+-DLIBCXXABI_STATICALLY_LINK_UNWINDER_IN_SHARED_LIBRARY=OFF
+-DLIBCXXABI_STATICALLY_LINK_UNWINDER_IN_STATIC_LIBRARY=ON
+-DLIBCXXABI_USE_COMPILER_RT=ON
+-DLIBCXXABI_USE_LLVM_UNWINDER=ON
+-DLIBUNWIND_USE_COMPILER_RT=ON
+-DSANITIZER_CXX_ABI=libc++
+-DSANITIZER_TEST_CXX=libc++
+-DLLVM_LINK_LLVM_DYLIB=ON
+-DCLANG_LINK_CLANG_DYLIB=ON
+-DCMAKE_STRIP=/usr/bin/strip
 EOF
 }
 
-# macOS-specific CMake arguments (from working script)
+# macOS-specific CMake arguments
 get_macos_cmake_args() {
     local target="$1"
     local arch
@@ -110,118 +141,15 @@ get_macos_cmake_args() {
 EOF
 }
 
-# Linux-specific CMake arguments (from working script)
+# Linux-specific CMake arguments
 get_linux_cmake_args() {
     cat << 'EOF'
 -DLLVM_ENABLE_LIBXML2=OFF
 -DLLVM_ENABLE_LIBCXX=OFF
 -DCLANG_DEFAULT_CXX_STDLIB=libstdc++
--DCMAKE_POSITION_INDEPENDENT_CODE=ON
--DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF
 -DLLVM_BUILD_LLVM_DYLIB=ON
--DLLVM_LINK_LLVM_DYLIB=ON
--DLIBCXX_ENABLE_STATIC_ABI_LIBRARY=ON
--DLIBCXX_STATICALLY_LINK_ABI_IN_SHARED_LIBRARY=OFF
--DLIBCXX_STATICALLY_LINK_ABI_IN_STATIC_LIBRARY=ON
--DLIBCXX_USE_COMPILER_RT=ON
--DLIBCXX_HAS_ATOMIC_LIB=OFF
--DLIBCXXABI_ENABLE_STATIC_UNWINDER=ON
--DLIBCXXABI_STATICALLY_LINK_UNWINDER_IN_SHARED_LIBRARY=OFF
--DLIBCXXABI_STATICALLY_LINK_UNWINDER_IN_STATIC_LIBRARY=ON
--DLIBCXXABI_USE_COMPILER_RT=ON
--DLIBCXXABI_USE_LLVM_UNWINDER=ON
--DLIBUNWIND_USE_COMPILER_RT=ON
--DCOMPILER_RT_USE_BUILTINS_LIBRARY=ON
 -DCOMPILER_RT_USE_LLVM_UNWINDER=ON
--DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON
--DSANITIZER_CXX_ABI=libc++
--DSANITIZER_TEST_CXX=libc++
 EOF
-}
-
-# MinGW-specific CMake arguments (修复版本)
-get_mingw_cmake_args() {
-    if [[ "$HOST_OS" == "Windows_NT" ]]; then
-        # Native Windows build with MinGW
-        cat << 'EOF'
--DCMAKE_SYSTEM_NAME=Windows
--DLLVM_ENABLE_LIBXML2=OFF
--DLLVM_ENABLE_LIBCXX=OFF
--DCLANG_DEFAULT_CXX_STDLIB=libstdc++
--DCMAKE_POSITION_INDEPENDENT_CODE=ON
--DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF
--DLLVM_DEFAULT_TARGET_TRIPLE=x86_64-w64-windows-gnu
--DLLVM_HOST_TRIPLE=x86_64-w64-windows-gnu
--DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON
--DCOMPILER_RT_USE_BUILTINS_LIBRARY=ON
--DLIBCXX_ENABLE_STATIC_ABI_LIBRARY=ON
--DLIBCXX_STATICALLY_LINK_ABI_IN_SHARED_LIBRARY=OFF
--DLIBCXX_STATICALLY_LINK_ABI_IN_STATIC_LIBRARY=ON
--DLIBCXX_USE_COMPILER_RT=ON
--DLIBCXX_HAS_ATOMIC_LIB=OFF
--DLIBCXX_ENABLE_FILESYSTEM=ON
--DLIBCXX_HAS_WIN32_THREAD_API=ON
--DLIBCXXABI_ENABLE_STATIC_UNWINDER=ON
--DLIBCXXABI_STATICALLY_LINK_UNWINDER_IN_SHARED_LIBRARY=OFF
--DLIBCXXABI_STATICALLY_LINK_UNWINDER_IN_STATIC_LIBRARY=ON
--DLIBCXXABI_USE_COMPILER_RT=ON
--DLIBCXXABI_USE_LLVM_UNWINDER=ON
--DLIBCXXABI_ENABLE_NEW_DELETE_DEFINITIONS=OFF
--DLIBUNWIND_USE_COMPILER_RT=ON
--DCOMPILER_RT_BUILD_SANITIZERS=OFF
--DCOMPILER_RT_BUILD_XRAY=OFF
--DCOMPILER_RT_BUILD_LIBFUZZER=OFF
--DCOMPILER_RT_BUILD_PROFILE=OFF
--DSANITIZER_CXX_ABI=libc++
--DSANITIZER_TEST_CXX=libc++
-EOF
-    else
-        # Cross-compile from Linux
-        cat << 'EOF'
--DCMAKE_SYSTEM_NAME=Windows
--DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc
--DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++
--DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres
--DCMAKE_FIND_ROOT_PATH=/usr/x86_64-w64-mingw32
--DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER
--DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
--DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
--DCMAKE_BUILD_WITH_INSTALL_RPATH=ON
--DCMAKE_INSTALL_RPATH_USE_LINK_PATH=OFF
--DLLVM_ENABLE_LIBXML2=OFF
--DLLVM_ENABLE_LIBCXX=OFF
--DCLANG_DEFAULT_CXX_STDLIB=libstdc++
--DCMAKE_POSITION_INDEPENDENT_CODE=ON
--DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF
--DLLVM_TABLEGEN=/usr/bin/llvm-tblgen
--DCLANG_TABLEGEN=/usr/bin/clang-tblgen
--DLLVM_DEFAULT_TARGET_TRIPLE=x86_64-w64-mingw32
--DLLVM_HOST_TRIPLE=x86_64-w64-mingw32
--DLLVM_TARGET_ARCH=x86_64
--DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON
--DCOMPILER_RT_USE_BUILTINS_LIBRARY=ON
--DLIBCXX_ENABLE_STATIC_ABI_LIBRARY=ON
--DLIBCXX_STATICALLY_LINK_ABI_IN_SHARED_LIBRARY=OFF
--DLIBCXX_STATICALLY_LINK_ABI_IN_STATIC_LIBRARY=ON
--DLIBCXX_USE_COMPILER_RT=ON
--DLIBCXX_HAS_ATOMIC_LIB=OFF
--DLIBCXX_ENABLE_FILESYSTEM=ON
--DLIBCXX_HAS_WIN32_THREAD_API=ON
--DLIBCXXABI_ENABLE_STATIC_UNWINDER=ON
--DLIBCXXABI_STATICALLY_LINK_UNWINDER_IN_SHARED_LIBRARY=OFF
--DLIBCXXABI_STATICALLY_LINK_UNWINDER_IN_STATIC_LIBRARY=ON
--DLIBCXXABI_USE_COMPILER_RT=ON
--DLIBCXXABI_USE_LLVM_UNWINDER=ON
--DLIBCXXABI_ENABLE_NEW_DELETE_DEFINITIONS=OFF
--DLIBUNWIND_USE_COMPILER_RT=ON
--DCOMPILER_RT_BUILD_SANITIZERS=OFF
--DCOMPILER_RT_BUILD_XRAY=OFF
--DCOMPILER_RT_BUILD_LIBFUZZER=OFF
--DCOMPILER_RT_BUILD_PROFILE=OFF
--DSANITIZER_CXX_ABI=libc++
--DSANITIZER_TEST_CXX=libc++
-EOF
-    fi
 }
 
 # Function to get platform-specific CMake arguments
@@ -235,9 +163,6 @@ get_platform_cmake_args() {
         *-linux-gnu*)
             get_linux_cmake_args
             ;;
-        *-mingw32)
-            get_mingw_cmake_args
-            ;;
         *)
             echo "Unknown target platform: $target" >&2
             return 1
@@ -245,56 +170,12 @@ get_platform_cmake_args() {
     esac
 }
 
-# Function to set up cross-compilation environment
-setup_cross_compile_env() {
+# Function to set up build environment (native builds only)
+setup_build_env() {
     local target="$1"
 
-    case "$target" in
-        aarch64-linux-gnu)
-            if [[ "$HOST_OS" == "Linux" ]]; then
-                export CC=aarch64-linux-gnu-gcc
-                export CXX=aarch64-linux-gnu-g++
-                export AR=aarch64-linux-gnu-ar
-                export RANLIB=aarch64-linux-gnu-ranlib
-                export STRIP=aarch64-linux-gnu-strip
-            fi
-            ;;
-        arm-linux-gnueabihf)
-            if [[ "$HOST_OS" == "Linux" ]]; then
-                export CC=arm-linux-gnueabihf-gcc
-                export CXX=arm-linux-gnueabihf-g++
-                export AR=arm-linux-gnueabihf-ar
-                export RANLIB=arm-linux-gnueabihf-ranlib
-                export STRIP=arm-linux-gnueabihf-strip
-            fi
-            ;;
-        x86_64-w64-mingw32)
-            if [[ "$HOST_OS" == "Linux" ]]; then
-                export CC=x86_64-w64-mingw32-gcc
-                export CXX=x86_64-w64-mingw32-g++
-                export AR=x86_64-w64-mingw32-ar
-                export RANLIB=x86_64-w64-mingw32-ranlib
-                export STRIP=x86_64-w64-mingw32-strip
-            elif [[ "$HOST_OS" == "Windows_NT" ]]; then
-                # 确保使用 MinGW-W64 工具链
-                if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
-                    export CC=x86_64-w64-mingw32-gcc
-                    export CXX=x86_64-w64-mingw32-g++
-                    export AR=x86_64-w64-mingw32-ar
-                    export RANLIB=x86_64-w64-mingw32-ranlib
-                    export STRIP=x86_64-w64-mingw32-strip
-                elif [[ -d "/c/mingw64" ]]; then
-                    export PATH="/c/mingw64/bin:$PATH"
-                    export CC=gcc
-                    export CXX=g++
-                elif [[ -d "/mingw64" ]]; then
-                    export PATH="/mingw64/bin:$PATH"
-                    export CC=gcc
-                    export CXX=g++
-                fi
-            fi
-            ;;
-    esac
+    # All builds are native, no cross-compilation setup needed
+    echo "Setting up native build environment for $target"
 }
 
 # Function to get number of CPU cores
@@ -345,108 +226,7 @@ create_release_structure() {
     echo "Package size: $(du -h "dist/clang-esp-${VERSION_STRING}-${target}.tar.xz" | cut -f1)"
 }
 
-# Function to build just LLVM/Clang without runtimes on first pass
-build_stage1() {
-    local target="$1"
-    local build_dir="$2"
-    local install_dir="$3"
-
-    echo "Stage 1: Building LLVM/Clang core tools for $target..."
-
-    # Create stage1 cmake args without runtimes
-    local cmake_args_file=$(mktemp)
-    {
-        cat << 'EOF'
--G Ninja
--DCMAKE_BUILD_TYPE=Release
--DLLVM_TARGETS_TO_BUILD=X86;ARM;AArch64;AVR;Mips;RISCV;WebAssembly
--DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=Xtensa
--DLLVM_ENABLE_PROJECTS=clang;lld
--DLLVM_POLLY_LINK_INTO_TOOLS=ON
--DLLVM_BUILD_EXTERNAL_COMPILER_RT=ON
--DLLVM_ENABLE_EH=ON
--DLLVM_ENABLE_FFI=ON
--DLLVM_ENABLE_RTTI=ON
--DLLVM_INCLUDE_DOCS=OFF
--DLLVM_INCLUDE_TESTS=OFF
--DLLVM_INSTALL_UTILS=ON
--DLLVM_ENABLE_Z3_SOLVER=OFF
--DLLVM_OPTIMIZED_TABLEGEN=ON
--DLLVM_USE_RELATIVE_PATHS_IN_FILES=ON
--DLLVM_SOURCE_PREFIX=.
--DCLANG_FORCE_MATCHING_LIBCLANG_SOVERSION=OFF
-EOF
-        get_platform_cmake_args "$target"
-        echo "-DCMAKE_INSTALL_PREFIX=$install_dir"
-    } > "$cmake_args_file"
-
-    # Configure Stage 1
-    cd "$build_dir"
-    cmake "../../$LLVM_PROJECTDIR/llvm" $(cat "$cmake_args_file" | tr '\n' ' ')
-
-    # Build Stage 1
-    local cores=$(get_cpu_cores)
-    echo "Building stage 1 with $cores CPU cores"
-    ninja -j"$cores" clang lld
-
-    # Install Stage 1
-    ninja install-clang install-lld
-
-    cd - > /dev/null
-    rm -f "$cmake_args_file"
-
-    echo "Stage 1 completed successfully!"
-}
-
-# Function to build with full runtimes using stage1 compiler
-build_stage2() {
-    local target="$1"
-    local build_dir="$2"
-    local install_dir="$3"
-
-    echo "Stage 2: Building full LLVM with runtimes for $target..."
-
-    # Create stage2 build directory
-    local stage2_dir="${build_dir}-stage2"
-    mkdir -p "$stage2_dir"
-
-    # Prepare full CMake arguments with runtimes
-    local cmake_args_file=$(mktemp)
-    {
-        get_base_cmake_args
-        get_platform_cmake_args "$target"
-        echo "-DCMAKE_INSTALL_PREFIX=$install_dir"
-
-        # Use stage1 compiler for MinGW
-        if [[ "$target" == *mingw32 && "$HOST_OS" == "Windows_NT" ]]; then
-            echo "-DCMAKE_C_COMPILER=$install_dir/bin/clang.exe"
-            echo "-DCMAKE_CXX_COMPILER=$install_dir/bin/clang++.exe"
-        fi
-    } > "$cmake_args_file"
-
-    echo "Stage 2 CMake configuration:"
-    cat "$cmake_args_file"
-    echo ""
-
-    # Configure Stage 2
-    cd "$stage2_dir"
-    cmake "../../$LLVM_PROJECTDIR/llvm" $(cat "$cmake_args_file" | tr '\n' ' ')
-
-    # Build Stage 2
-    local cores=$(get_cpu_cores)
-    echo "Building stage 2 with $cores CPU cores"
-    ninja -j"$cores"
-
-    # Install Stage 2
-    ninja install
-
-    cd - > /dev/null
-    rm -f "$cmake_args_file"
-
-    echo "Stage 2 completed successfully!"
-}
-
-# Main build function (修改为使用两阶段构建)
+# Main build function (native builds only)
 build_platform() {
     local target="$1"
 
@@ -463,51 +243,41 @@ build_platform() {
     mkdir -p "$build_dir"
     mkdir -p "$install_dir"
 
-    # Set up cross-compilation environment
-    setup_cross_compile_env "$target"
+    # Set up build environment
+    setup_build_env "$target"
 
-    # For MinGW, use two-stage build to avoid runtime configuration issues
-    if [[ "$target" == *mingw32 ]]; then
-        echo "Using two-stage build for MinGW target..."
-        build_stage1 "$target" "$build_dir" "$install_dir"
-        build_stage2 "$target" "$build_dir" "$install_dir"
-    else
-        # Single stage build for other targets
-        echo "Using single-stage build..."
+    # Prepare CMake arguments
+    local cmake_args_file=$(mktemp)
+    {
+        get_base_cmake_args
+        get_platform_cmake_args "$target"
+        echo "-DCMAKE_INSTALL_PREFIX=$install_dir"
+    } > "$cmake_args_file"
 
-        # Prepare CMake arguments
-        local cmake_args_file=$(mktemp)
-        {
-            get_base_cmake_args
-            get_platform_cmake_args "$target"
-            echo "-DCMAKE_INSTALL_PREFIX=$install_dir"
-        } > "$cmake_args_file"
+    echo "CMake configuration:"
+    cat "$cmake_args_file"
+    echo ""
 
-        echo "CMake configuration:"
-        cat "$cmake_args_file"
-        echo ""
+    # Configure
+    echo "Configuring build for $target..."
+    cd "$build_dir"
+    cmake "../../$LLVM_PROJECTDIR/llvm" $(cat "$cmake_args_file" | tr '\n' ' ')
 
-        # Configure
-        echo "Configuring build for $target..."
-        cd "$build_dir"
-        cmake "../../$LLVM_PROJECTDIR/llvm" $(cat "$cmake_args_file" | tr '\n' ' ')
+    # Build
+    echo "Building $target..."
+    local cores=$(get_cpu_cores)
+    echo "Using $cores CPU cores for build"
+    ninja -j"$cores"
 
-        # Build
-        echo "Building $target..."
-        local cores=$(get_cpu_cores)
-        echo "Using $cores CPU cores for build"
-        ninja -j"$cores"
+    # Install
+    echo "Installing $target..."
+    ninja install
 
-        # Install
-        echo "Installing $target..."
-        ninja install
+    # Return to original directory
+    cd - > /dev/null
 
-        # Return to original directory
-        cd - > /dev/null
-
-        # Clean up temporary file
-        rm -f "$cmake_args_file"
-    fi
+    # Clean up temporary file
+    rm -f "$cmake_args_file"
 
     # Create release directory structure
     create_release_structure "$target" "$install_dir"
