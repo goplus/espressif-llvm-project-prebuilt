@@ -277,6 +277,8 @@ build_platform() {
     local cores=$(get_cpu_cores)
     echo "Using $cores CPU cores for build"
     
+    # Build only essential tools to significantly reduce build time
+    # LLGo currently only requires libLLVM.dylib for dynamic libraries, and this dylib will be built with the following targets
     ninja -j"$cores" clang llvm-config llvm-ar llvm-nm lld
 
     # Install
