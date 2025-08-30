@@ -276,7 +276,8 @@ build_platform() {
     echo "Building $target..."
     local cores=$(get_cpu_cores)
     echo "Using $cores CPU cores for build"
-    ninja -j"$cores"
+    
+    ninja -j"$cores" clang llvm-config llvm-ar llvm-nm lld
 
     # Install
     echo "Installing $target..."
