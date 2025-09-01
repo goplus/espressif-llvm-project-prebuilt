@@ -90,7 +90,7 @@ get_base_cmake_args() {
 -DLLVM_INCLUDE_BENCHMARKS=OFF
 -DLLVM_BUILD_DOCS=OFF
 -DLLVM_ENABLE_DOXYGEN=OFF
--DLLVM_INSTALL_UTILS=ON
+-DLLVM_INSTALL_UTILS=OFF
 -DLLVM_ENABLE_Z3_SOLVER=OFF
 -DLLVM_ENABLE_LIBEDIT=OFF
 -DLLVM_OPTIMIZED_TABLEGEN=ON
@@ -125,7 +125,12 @@ get_base_cmake_args() {
 -DSANITIZER_TEST_CXX=libc++
 -DLLVM_LINK_LLVM_DYLIB=ON
 -DCLANG_LINK_CLANG_DYLIB=ON
--DCMAKE_STRIP=/usr/bin/strip
+-DLLVM_TOOL_CLANG_TOOLS_EXTRA_BUILD=OFF
+-DCLANG_ENABLE_STATIC_ANALYZER=OFF
+-DCLANG_ENABLE_ARCMT=OFF
+-DLIBCLANG_BUILD_STATIC=ON
+-DLLVM_ENABLE_TERMINFO=OFF
+-DLLVM_ENABLE_ZSTD=OFF
 EOF
 }
 
@@ -276,7 +281,9 @@ build_platform() {
     echo "Building $target..."
     local cores=$(get_cpu_cores)
     echo "Using $cores CPU cores for build"
-    ninja -j"$cores"
+       # Build only essential tools to significantly reduce build time
+    # LLGo currently only requires libLLVM.dylib for dynamic libraries, and this dylib will be built with the following targets
+    ninja -j"$cores" clang llvm-config llvm-ar llvm-nm lld
 
     # Install
     echo "Installing $target..."
