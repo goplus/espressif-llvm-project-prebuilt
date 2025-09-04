@@ -86,11 +86,13 @@ jobs:
           - target: x86_64-linux-gnu
             os: ubuntu-22.04
             runner: ubuntu-22.04
+            container: ubuntu:20.04
 
           # Linux ARM64 build
           - target: aarch64-linux-gnu
             os: ubuntu-22.04-arm
             runner: ubuntu-22.04-arm
+            container: ubuntu:20.04
 
           # macOS x86_64 build
           - target: x86_64-apple-darwin
@@ -103,16 +105,41 @@ jobs:
             runner: macos-14
 
     runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
 
     steps:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Install build dependencies (Linux)
-      if: matrix.os == 'ubuntu-22.04' || matrix.os == 'ubuntu-22.04-arm'
+    - name: Install build dependencies (Linux containers)
+      if: matrix.container == 'ubuntu:20.04'
       run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential cmake ninja-build
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y build-essential ninja-build git ca-certificates wget
+        
+        # Install newer CMake (LLVM requires 3.20+, Ubuntu 20.04 has 3.16)
+        CMAKE_VERSION="3.25.3"
+        CMAKE_ARCH="x86_64"
+        if [[ "${{ matrix.target }}" == "aarch64-linux-gnu" ]]; then
+          CMAKE_ARCH="aarch64"
+        fi
+        
+        wget -O cmake.tar.gz "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz"
+        tar -xzf cmake.tar.gz -C /opt
+        ln -sf /opt/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}/bin/* /usr/local/bin/
+        
+        # Verify CMake version
+        cmake --version
+
+    - name: Setup container environment (Linux)
+      if: matrix.container == 'ubuntu:20.04'
+      run: |
+        # Ensure proper ownership of workspace
+        chown -R $(whoami):$(whoami) $GITHUB_WORKSPACE || true
+        # Create required directories with proper permissions
+        mkdir -p dist build install
+        chmod 755 dist build install
 
     - name: Install build dependencies (macOS)
       if: matrix.os == 'macos-13' || matrix.os == 'macos-14'
