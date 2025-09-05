@@ -92,6 +92,7 @@ jobs:
           - target: aarch64-linux-gnu
             os: ubuntu-22.04-arm
             runner: ubuntu-22.04-arm
+            container: ubuntu:20.04
 
           # macOS x86_64 build
           - target: x86_64-apple-darwin
@@ -124,14 +125,23 @@ jobs:
         
         # Install newer CMake (LLVM requires 3.20+, Ubuntu 20.04 has 3.16)
         CMAKE_VERSION="3.25.3"
-        wget -O cmake.tar.gz "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz"
+        CMAKE_ARCH="x86_64"
+        if [ "${{ matrix.target }}" = "aarch64-linux-gnu" ]; then
+          CMAKE_ARCH="aarch64"
+        fi
+        
+        echo "Matrix target: ${{ matrix.target }}"
+        echo "CMAKE_ARCH: ${CMAKE_ARCH}"
+        echo "Download URL: https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz"
+        
+        wget -O cmake.tar.gz "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz"
         tar -xzf cmake.tar.gz -C /opt
-        ln -sf /opt/cmake-${CMAKE_VERSION}-linux-x86_64/bin/* /usr/local/bin/
+        ln -sf /opt/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}/bin/* /usr/local/bin/
         rm cmake.tar.gz
         cmake --version
 
     - name: Install build dependencies (Linux)
-      if: matrix.os == 'ubuntu-22.04-arm'
+      if: matrix.os == 'ubuntu-22.04-arm' && matrix.container != 'ubuntu:20.04'
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential cmake ninja-build
