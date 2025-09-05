@@ -114,6 +114,11 @@ jobs:
       if: matrix.container == 'ubuntu:20.04'
       run: |
         export DEBIAN_FRONTEND=noninteractive
+        
+        # Use HTTP mirrors to avoid certificate issues
+        sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.kernel.org/ubuntu/|g' /etc/apt/sources.list
+        sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirrors.kernel.org/ubuntu/|g' /etc/apt/sources.list
+        
         apt-get update --fix-missing
         apt-get install -y build-essential ninja-build git ca-certificates wget python3 python3-pip
         
