@@ -121,7 +121,7 @@ jobs:
         # Install newer CMake (LLVM requires 3.20+, Ubuntu 20.04 has 3.16)
         CMAKE_VERSION="3.25.3"
         CMAKE_ARCH="x86_64"
-        if [[ "${{ matrix.target }}" == "aarch64-linux-gnu" ]]; then
+        if [ "${{ matrix.target }}" = "aarch64-linux-gnu" ]; then
           CMAKE_ARCH="aarch64"
         fi
         
