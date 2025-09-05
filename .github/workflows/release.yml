@@ -115,12 +115,17 @@ jobs:
       run: |
         export DEBIAN_FRONTEND=noninteractive
         
-        # Use Ubuntu mirror selection for better network reliability
+        # First install ca-certificates from default sources
+        apt-get update --fix-missing
+        apt-get install -y ca-certificates
+        
+        # Now use Ubuntu mirror selection for better network reliability
         sed -i 's|http://archive.ubuntu.com/ubuntu/|mirror://mirrors.ubuntu.com/US.txt|g' /etc/apt/sources.list
         sed -i 's|http://security.ubuntu.com/ubuntu/|mirror://mirrors.ubuntu.com/US.txt|g' /etc/apt/sources.list
         
+        # Update again with mirrors
         apt-get update --fix-missing
-        apt-get install -y build-essential ninja-build git ca-certificates wget python3 python3-pip
+        apt-get install -y build-essential ninja-build git wget python3 python3-pip
         
         # Install newer CMake (LLVM requires 3.20+, Ubuntu 20.04 has 3.16)
         CMAKE_VERSION="3.25.3"
