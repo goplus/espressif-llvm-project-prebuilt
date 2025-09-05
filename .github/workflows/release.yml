@@ -125,6 +125,10 @@ jobs:
           CMAKE_ARCH="aarch64"
         fi
         
+        echo "Matrix target: ${{ matrix.target }}"
+        echo "CMAKE_ARCH: ${CMAKE_ARCH}"
+        echo "Download URL: https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz"
+        
         wget -O cmake.tar.gz "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}.tar.gz"
         tar -xzf cmake.tar.gz -C /opt
         ln -sf /opt/cmake-${CMAKE_VERSION}-linux-${CMAKE_ARCH}/bin/* /usr/local/bin/
