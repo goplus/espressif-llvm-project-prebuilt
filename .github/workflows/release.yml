@@ -20,9 +20,9 @@ on:
         required: false
         type: string
       branch_prefix:
-        description: 'Branch prefix (default: xtensa_release_)'
+        description: 'Branch prefix (default: release/esp_)'
         required: false
-        default: 'xtensa_release_'
+        default: 'release/esp_'
         type: string
       upload:
         description: 'Upload release assets'
@@ -55,17 +55,17 @@ jobs:
         if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
           # Tag push - create release
           tag="${{ github.ref_name }}"
-          branch_prefix="xtensa_release_"
+          branch_prefix="release/esp_"
           upload="true"
         elif [ "${{ github.event_name }}" = "pull_request" ]; then
           # PR build - no release, use PR number
-          tag="19.1.2_20250225"
-          branch_prefix="xtensa_release_"
+          tag="20.x_20250911"
+          branch_prefix="release/esp_"
           upload="false"
         elif [ -n "${{ inputs.tag }}" ]; then
           # Manual trigger with tag
           tag="${{ inputs.tag }}"
-          branch_prefix="${{ inputs.branch_prefix || 'xtensa_release_' }}"
+          branch_prefix="${{ inputs.branch_prefix || 'release/esp_' }}"
           upload="${{ inputs.upload }}"
         else
           echo "No tag specified and not a tag push event"

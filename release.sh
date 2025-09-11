@@ -6,13 +6,13 @@
 set -e
 
 # Configuration
-TAG="${TAG:-19.1.2_20250312}"
+TAG="${TAG:-20.x_20250911}"
 VERSION_STRING="$TAG"
 LLVM_PROJECTDIR="${LLVM_PROJECTDIR:-llvm-project}"
 BUILD_DIR_BASE="${BUILD_DIR_BASE:-build}"
 
 # Branch configuration - support different branch naming schemes
-BRANCH_PREFIX="${BRANCH_PREFIX:-xtensa_release_}"
+BRANCH_PREFIX="${BRANCH_PREFIX:-release/esp_}"
 # Extract version from TAG to determine branch name
 LLVM_VERSION_FROM_TAG="${TAG%%_*}"
 LLVM_BRANCH="${BRANCH_PREFIX}${LLVM_VERSION_FROM_TAG}"
