@@ -11,9 +11,11 @@ VERSION_STRING="$TAG"
 LLVM_PROJECTDIR="${LLVM_PROJECTDIR:-llvm-project}"
 BUILD_DIR_BASE="${BUILD_DIR_BASE:-build}"
 
+# Branch configuration - support different branch naming schemes
+BRANCH_PREFIX="${BRANCH_PREFIX:-xtensa_release_}"
 # Extract version from TAG to determine branch name
 LLVM_VERSION_FROM_TAG="${TAG%%_*}"
-LLVM_BRANCH="xtensa_release_${LLVM_VERSION_FROM_TAG}"
+LLVM_BRANCH="${BRANCH_PREFIX}${LLVM_VERSION_FROM_TAG}"
 
 # Detect host system
 if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]] || [[ -n "$WINDIR" ]]; then
@@ -48,6 +50,7 @@ show_usage() {
     echo ""
     echo "Environment variables:"
     echo "  TAG              - Version tag (default: $TAG)"
+    echo "  BRANCH_PREFIX    - Branch prefix (default: $BRANCH_PREFIX)"
     echo "  LLVM_PROJECTDIR  - LLVM source directory (default: $LLVM_PROJECTDIR)"
     echo "  BUILD_DIR_BASE   - Build directory base (default: $BUILD_DIR_BASE)"
     echo ""
