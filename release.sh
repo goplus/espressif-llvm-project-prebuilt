@@ -6,14 +6,14 @@
 set -e
 
 # Configuration
-TAG="${TAG:-19.1.2_20250312}"
+TAG="esp-20.1.1_20250903"
 VERSION_STRING="$TAG"
 LLVM_PROJECTDIR="${LLVM_PROJECTDIR:-llvm-project}"
 BUILD_DIR_BASE="${BUILD_DIR_BASE:-build}"
 
 # Extract version from TAG to determine branch name
 LLVM_VERSION_FROM_TAG="${TAG%%_*}"
-LLVM_BRANCH="xtensa_release_${LLVM_VERSION_FROM_TAG}"
+LLVM_BRANCH="release/esp_20.x"
 
 # Detect host system
 if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]] || [[ -n "$WINDIR" ]]; then
