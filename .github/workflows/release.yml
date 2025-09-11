@@ -19,6 +19,11 @@ on:
         description: 'Tag to build (optional, uses current commit if empty)'
         required: false
         type: string
+      branch_prefix:
+        description: 'Branch prefix (default: release/esp_)'
+        required: false
+        default: 'release/esp_'
+        type: string
       upload:
         description: 'Upload release assets'
         required: true
@@ -39,6 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.vars.outputs.tag }}
+      branch_prefix: ${{ steps.vars.outputs.branch_prefix }}
       upload: ${{ steps.vars.outputs.upload }}
       version_string: ${{ steps.vars.outputs.version_string }}
 
@@ -49,14 +55,17 @@ jobs:
         if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
           # Tag push - create release
           tag="${{ github.ref_name }}"
+          branch_prefix="release/esp_"
           upload="true"
         elif [ "${{ github.event_name }}" = "pull_request" ]; then
           # PR build - no release, use PR number
-          tag="19.1.2_20250225"
+          tag="20.x_20250911"
+          branch_prefix="release/esp_"
           upload="false"
         elif [ -n "${{ inputs.tag }}" ]; then
           # Manual trigger with tag
           tag="${{ inputs.tag }}"
+          branch_prefix="${{ inputs.branch_prefix || 'release/esp_' }}"
           upload="${{ inputs.upload }}"
         else
           echo "No tag specified and not a tag push event"
@@ -66,12 +75,14 @@ jobs:
         version_string="esp-$tag"
 
         echo "tag=$tag" >> $GITHUB_OUTPUT
+        echo "branch_prefix=$branch_prefix" >> $GITHUB_OUTPUT
         echo "upload=$upload" >> $GITHUB_OUTPUT
         echo "version_string=$version_string" >> $GITHUB_OUTPUT
 
         echo "Build configuration:"
         echo "  Event: ${{ github.event_name }}"
         echo "  Tag: $tag"
+        echo "  Branch Prefix: $branch_prefix"
         echo "  Version String: $version_string"
         echo "  Upload: $upload"
 
@@ -156,6 +167,7 @@ jobs:
       shell: bash
       env:
         TAG: ${{ needs.prepare.outputs.tag }}
+        BRANCH_PREFIX: ${{ needs.prepare.outputs.branch_prefix }}
       run: ./release.sh ${{ matrix.target }}
 
     - name: List generated packages
